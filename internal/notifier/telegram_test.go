@@ -2,7 +2,6 @@ package notifier
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +24,7 @@ type fakeTelegram struct {
 	srv    *httptest.Server
 	calls  atomic.Int64
 	lastPa string
-	lastCh any
+	lastCh string // chat_id as it went over the wire (multipart form value)
 	lastTx string
 	status int    // HTTP status to return (default 200)
 	okBody string // JSON body to return; empty => a valid ok:true message
@@ -38,13 +37,10 @@ func newFakeTelegram(t *testing.T) *fakeTelegram {
 		if strings.HasSuffix(r.URL.Path, "/sendMessage") {
 			f.calls.Add(1)
 			f.lastPa = r.URL.Path
-			body, _ := io.ReadAll(r.Body)
-			var p struct {
-				ChatID any    `json:"chat_id"`
-				Text   string `json:"text"`
-			}
-			_ = json.Unmarshal(body, &p)
-			f.lastCh, f.lastTx = p.ChatID, p.Text
+			// The bot library posts multipart/form-data; every field
+			// arrives as a string regardless of its Go type.
+			_ = r.ParseMultipartForm(1 << 20)
+			f.lastCh, f.lastTx = r.FormValue("chat_id"), r.FormValue("text")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(f.status)
@@ -78,7 +74,7 @@ func TestTelegram_NotifySendsOneMessage(t *testing.T) {
 
 	require.Equal(t, int64(1), f.calls.Load())
 	require.True(t, strings.HasSuffix(f.lastPa, "/bot"+testToken+"/sendMessage"))
-	require.EqualValues(t, -1001234, f.lastCh) // numeric chat id sent as a number
+	require.Equal(t, "-1001234", f.lastCh) // configured numeric chat id reaches Telegram
 	require.Equal(t, "web is now DOWN", f.lastTx)
 }
 
