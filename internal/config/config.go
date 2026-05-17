@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -18,16 +19,41 @@ import (
 // An absent or mismatched version is a hard error — no silent upgrades.
 const SupportedSchemaVersion = 1
 
-// Config is the parsed configuration. Services/Hosts are added in later issues.
+// Config is the parsed configuration. The Services list is the source of
+// truth (rule 6) — SQLite never holds it. Hosts arrive in a later issue.
 type Config struct {
-	SchemaVersion int            `yaml:"schema_version"`
-	HTTPAddr      string         `yaml:"http_addr"`
-	Database      DatabaseConfig `yaml:"database"`
+	SchemaVersion int             `yaml:"schema_version"`
+	HTTPAddr      string          `yaml:"http_addr"`
+	Database      DatabaseConfig  `yaml:"database"`
+	Services      []ServiceConfig `yaml:"services"`
 }
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
 }
+
+// ServiceConfig defines one monitored HTTP(S) Service. Durations are Go
+// duration strings ("30s", "750ms") parsed explicitly in validate() — no
+// library magic (rule 3). Consumers read the resolved typed accessors.
+type ServiceConfig struct {
+	Name             string `yaml:"name"`
+	URL              string `yaml:"url"`
+	PollInterval     string `yaml:"poll_interval"`
+	Timeout          string `yaml:"timeout"`
+	LatencyThreshold string `yaml:"latency_threshold"`
+	DebounceN        int    `yaml:"debounce_n"`
+
+	poll, probeTimeout, threshold time.Duration // resolved by validate()
+}
+
+// Poll is how often this Service is probed.
+func (s ServiceConfig) Poll() time.Duration { return s.poll }
+
+// ProbeTimeout is the per-Probe deadline enforced on this Service (rule 4).
+func (s ServiceConfig) ProbeTimeout() time.Duration { return s.probeTimeout }
+
+// Threshold is the latency above which a reachable Service is DEGRADED.
+func (s ServiceConfig) Threshold() time.Duration { return s.threshold }
 
 // Source is the ConfigSource seam: it yields a validated Config. Hot-reload
 // (issue 0008) is a later implementation behind this same seam.
@@ -77,6 +103,10 @@ func (c *Config) resolveSecrets() error {
 	var r secretResolver
 	c.HTTPAddr = r.expand(c.HTTPAddr)
 	c.Database.Path = r.expand(c.Database.Path)
+	for i := range c.Services {
+		// A Service URL may embed a secret host/token via ${VAR}.
+		c.Services[i].URL = r.expand(c.Services[i].URL)
+	}
 	return r.err()
 }
 
@@ -122,5 +152,57 @@ func (c *Config) validate() error {
 	if c.Database.Path == "" {
 		c.Database.Path = "server-assistant.db"
 	}
+	seen := map[string]struct{}{}
+	for i := range c.Services {
+		if err := c.Services[i].resolve(); err != nil {
+			return fmt.Errorf("service %q: %w", c.Services[i].Name, err)
+		}
+		if _, dup := seen[c.Services[i].Name]; dup {
+			return fmt.Errorf("duplicate service name %q", c.Services[i].Name)
+		}
+		seen[c.Services[i].Name] = struct{}{}
+	}
 	return nil
+}
+
+// resolve validates one Service and parses its duration strings into the
+// typed accessors, applying defaults for omitted optional knobs.
+func (s *ServiceConfig) resolve() error {
+	if s.Name == "" {
+		return errors.New("name is required")
+	}
+	if s.URL == "" {
+		return errors.New("url is required")
+	}
+	var err error
+	if s.poll, err = parseDurationDefault(s.PollInterval, 30*time.Second); err != nil {
+		return fmt.Errorf("poll_interval: %w", err)
+	}
+	if s.probeTimeout, err = parseDurationDefault(s.Timeout, 10*time.Second); err != nil {
+		return fmt.Errorf("timeout: %w", err)
+	}
+	if s.threshold, err = parseDurationDefault(s.LatencyThreshold, 1*time.Second); err != nil {
+		return fmt.Errorf("latency_threshold: %w", err)
+	}
+	if s.DebounceN == 0 {
+		s.DebounceN = 3
+	}
+	if s.DebounceN < 1 {
+		return fmt.Errorf("debounce_n must be >= 1, got %d", s.DebounceN)
+	}
+	return nil
+}
+
+func parseDurationDefault(v string, def time.Duration) (time.Duration, error) {
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, err
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("must be positive, got %s", v)
+	}
+	return d, nil
 }

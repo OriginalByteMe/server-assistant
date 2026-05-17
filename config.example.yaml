@@ -13,6 +13,23 @@ http_addr: ":8080"
 database:
   # Path to the SQLite file. Runtime state and history only — never config.
   path: "server-assistant.db"
+
+# Monitored Services (the source of truth — rule 6). Durations are Go
+# duration strings. Optional knobs default if omitted:
+#   poll_interval 30s · timeout 10s · latency_threshold 1s · debounce_n 3
+# A reachable Service slower than latency_threshold is DEGRADED, not DOWN.
+# A Status change commits (and Alerts) only after debounce_n agreeing Probes.
+services:
+  - name: example
+    url: "https://example.test"
+    poll_interval: "30s"
+    timeout: "10s"
+    latency_threshold: "1s"
+    debounce_n: 3
+  # A URL may embed a secret via ${VAR}, expanded from the environment:
+  # - name: private
+  #   url: "https://${PRIVATE_HOST}/health"
+
 # Example of a future env-sourced secret (Telegram, issue 0003):
 # telegram:
 #   bot_token: "${TELEGRAM_BOT_TOKEN}"

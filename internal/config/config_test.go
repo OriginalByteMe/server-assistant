@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -61,4 +62,31 @@ func TestLoad_RejectsUnsetEnvReference(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unset environment variables")
 	require.Contains(t, err.Error(), "SA_DEFINITELY_UNSET_VAR")
+}
+
+func TestLoad_ServiceParsedWithDefaults(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\nservices:\n  - name: web\n    url: \"https://example.test\"\n    latency_threshold: \"750ms\"\n")
+	c, err := NewFileSource(p).Load(context.Background())
+	require.NoError(t, err)
+	require.Len(t, c.Services, 1)
+	s := c.Services[0]
+	require.Equal(t, "web", s.Name)
+	require.Equal(t, 750*time.Millisecond, s.Threshold())
+	require.Equal(t, 30*time.Second, s.Poll())         // default
+	require.Equal(t, 10*time.Second, s.ProbeTimeout()) // default
+	require.Equal(t, 3, s.DebounceN)                   // default
+}
+
+func TestLoad_RejectsServiceWithoutURL(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\nservices:\n  - name: web\n")
+	_, err := NewFileSource(p).Load(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "url is required")
+}
+
+func TestLoad_RejectsBadDuration(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\nservices:\n  - name: web\n    url: \"https://x.test\"\n    poll_interval: \"notaduration\"\n")
+	_, err := NewFileSource(p).Load(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "poll_interval")
 }
