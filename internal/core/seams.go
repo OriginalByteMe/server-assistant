@@ -15,9 +15,14 @@ type Prober interface {
 }
 
 // Store persists runtime state and history. It never holds configuration
-// (CONVENTIONS rule 6).
+// (CONVENTIONS rule 6). The interface grows additively per issue (ADR 0006 /
+// rule 2): issue 0002 adds committed-Status persistence for restart-safety.
 type Store interface {
 	Migrate(ctx context.Context) error
+	RecordProbe(ctx context.Context, p ProbeSample) error
+	LoadProbeSamples(ctx context.Context, service string) ([]ProbeSample, error)
+	SaveCommittedStatus(ctx context.Context, cs CommittedStatus) error
+	LoadCommittedStatuses(ctx context.Context) ([]CommittedStatus, error)
 	Close() error
 }
 

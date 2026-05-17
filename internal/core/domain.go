@@ -45,3 +45,33 @@ type Alert struct {
 	Status  Status
 	Message string
 }
+
+// ServiceView is the dashboard's current projection of one Service: its
+// committed Status plus the latest observed latency and check time. It is
+// what the SSE stream pushes on each committed change.
+type ServiceView struct {
+	Name        string
+	Status      Status
+	Latency     time.Duration
+	LastChecked time.Time
+}
+
+// ProbeSample is one recorded raw Probe outcome for a Service — the unit of
+// history. ADR 0002 makes this the TSDB-ready ingestion point; a dedicated
+// time-series backend can attach behind the Store seam later without rework.
+type ProbeSample struct {
+	Service string
+	Status  Status
+	Latency time.Duration
+	At      time.Time
+}
+
+// CommittedStatus is a Service's last debounce-committed Status. It is runtime
+// state (not config — CONVENTIONS rule 6): persisting it lets the daemon
+// resume across restarts from the last known Status instead of re-deriving
+// from UNKNOWN and re-alerting.
+type CommittedStatus struct {
+	Service   string
+	Status    Status
+	ChangedAt time.Time
+}
