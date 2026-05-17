@@ -62,6 +62,16 @@ maintained, and that it is **pure Go**. No exceptions land silently.
 10. **Errors wrap, daemons don't panic.** `fmt.Errorf("...: %w", err)`; typed
     or sentinel errors at seams; no `panic` in any long-running daemon path.
 
+## Definition of done
+
+Code is not done because it compiles. An issue is done only when its acceptance
+criteria are demonstrably met and the proof lives on the ticket — the exact
+build/test/lint commands run, their outcome and commit SHA, and a ticked-off
+acceptance checklist. Work that needs a human's eyes goes to **In Review**, not
+**Done**; the agent never grades its own homework (ADR 0016). The mechanics —
+what the completion comment must contain and the Done-vs-In-Review decision —
+live in `docs/agents/issue-tracker.md`.
+
 ## How to change this document
 
 A change to a library or rule is a deliberate decision. If it is hard to
