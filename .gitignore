@@ -9,3 +9,5 @@
 *.local.yaml
 # local config holds secrets (token/chat); config.example.yaml is the template
 /config.yaml
+# per-user local harness settings
+/.claude/settings.local.json
