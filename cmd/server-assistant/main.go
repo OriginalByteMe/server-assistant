@@ -24,6 +24,11 @@ import (
 	"server-assistant/internal/web"
 )
 
+// telegramTimeout caps a single Alert delivery (CONVENTIONS rule 4). It is a
+// fixed daemon constant, not config: a one-way Alert that cannot send within
+// this budget is dropped (logged by the monitor) rather than stalling a poll.
+const telegramTimeout = 10 * time.Second
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
@@ -59,8 +64,20 @@ func run() error {
 		return err
 	}
 
-	// Telegram Notifier is ARK-7; the stub keeps the seam wired meanwhile.
+	// One-way Alert channel (ARK-7). Telegram when the Operator supplied
+	// credentials; otherwise the Stub keeps the seam wired and logs Alerts.
+	// Neither the token nor the chat id is ever logged (CONVENTIONS rule 8).
 	var notify core.Notifier = notifier.Stub{}
+	if cfg.Telegram.Configured() {
+		tg, terr := notifier.NewTelegram(cfg.Telegram.BotToken, cfg.Telegram.ChatID, telegramTimeout)
+		if terr != nil {
+			return terr
+		}
+		notify = tg
+		slog.Info("notifier: telegram enabled")
+	} else {
+		slog.Info("notifier: telegram not configured, using stub (alerts logged only)")
+	}
 
 	svcs := make([]monitor.Service, 0, len(cfg.Services))
 	for _, s := range cfg.Services {

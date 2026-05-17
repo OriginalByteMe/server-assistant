@@ -30,6 +30,10 @@ services:
   # - name: private
   #   url: "https://${PRIVATE_HOST}/health"
 
-# Example of a future env-sourced secret (Telegram, issue 0003):
+# One-way Alert channel over Telegram (issue 0003). Optional: omit the whole
+# block to keep Alerts log-only. Both fields are secrets — supply them via the
+# environment (never commit them), and set both or neither. chat_id is a
+# numeric chat/group id, or an "@channelusername".
 # telegram:
 #   bot_token: "${TELEGRAM_BOT_TOKEN}"
+#   chat_id: "${TELEGRAM_CHAT_ID}"

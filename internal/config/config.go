@@ -26,10 +26,27 @@ type Config struct {
 	HTTPAddr      string          `yaml:"http_addr"`
 	Database      DatabaseConfig  `yaml:"database"`
 	Services      []ServiceConfig `yaml:"services"`
+	Telegram      TelegramConfig  `yaml:"telegram"`
 }
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
+}
+
+// TelegramConfig holds the one-way Alert channel's credentials (issue 0003).
+// Both fields are secrets — supplied via ${VAR}, never the committed YAML,
+// never logged (CONVENTIONS rule 7/8). The whole block is optional: omitted,
+// the daemon keeps the Stub notifier (main wiring).
+type TelegramConfig struct {
+	BotToken string `yaml:"bot_token"`
+	ChatID   string `yaml:"chat_id"`
+}
+
+// Configured reports whether a usable Telegram channel was supplied. validate()
+// has already rejected a half-filled block, so both-empty is the only other
+// state: false means "keep the Stub notifier", not "broken config".
+func (t TelegramConfig) Configured() bool {
+	return t.BotToken != "" && t.ChatID != ""
 }
 
 // ServiceConfig defines one monitored HTTP(S) Service. Durations are Go
@@ -107,6 +124,8 @@ func (c *Config) resolveSecrets() error {
 		// A Service URL may embed a secret host/token via ${VAR}.
 		c.Services[i].URL = r.expand(c.Services[i].URL)
 	}
+	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
+	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
 	return r.err()
 }
 
@@ -161,6 +180,11 @@ func (c *Config) validate() error {
 			return fmt.Errorf("duplicate service name %q", c.Services[i].Name)
 		}
 		seen[c.Services[i].Name] = struct{}{}
+	}
+	// A half-filled telegram block is a misconfiguration, not a silent
+	// half-on notifier: require both or neither (rule 6).
+	if (c.Telegram.BotToken == "") != (c.Telegram.ChatID == "") {
+		return errors.New("telegram: bot_token and chat_id must both be set or both omitted")
 	}
 	return nil
 }

@@ -11,6 +11,8 @@ require (
 	modernc.org/sqlite v1.33.1
 )
 
+require github.com/go-telegram/bot v1.20.0
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
