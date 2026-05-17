@@ -120,3 +120,52 @@ func TestLoad_RejectsBadDuration(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "poll_interval")
 }
+
+// Telegram is optional: a config with no telegram block is valid and the
+// notifier stays the Stub (main wiring), so Configured() must report false.
+func TestLoad_TelegramAbsentIsValidAndUnconfigured(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\n")
+	c, err := NewFileSource(p).Load(context.Background())
+	require.NoError(t, err)
+	require.False(t, c.Telegram.Configured())
+}
+
+// The bot token and chat id are secrets: they live in env, referenced via
+// ${VAR} (CONVENTIONS rule 7), and are expanded after parsing like every
+// other secret-bearing field.
+func TestLoad_TelegramExpandsEnvSecrets(t *testing.T) {
+	t.Setenv("SA_TG_TOKEN", "123:abc")
+	t.Setenv("SA_TG_CHAT", "-1009999")
+	p := writeTemp(t, "schema_version: 1\ntelegram:\n  bot_token: \"${SA_TG_TOKEN}\"\n  chat_id: \"${SA_TG_CHAT}\"\n")
+	c, err := NewFileSource(p).Load(context.Background())
+	require.NoError(t, err)
+	require.True(t, c.Telegram.Configured())
+	require.Equal(t, "123:abc", c.Telegram.BotToken)
+	require.Equal(t, "-1009999", c.Telegram.ChatID)
+}
+
+// A ${VAR} the operator forgot to set is a hard error, never a silent empty
+// token (consistent with the existing secret resolver).
+func TestLoad_TelegramRejectsUnsetEnvReference(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\ntelegram:\n  bot_token: \"${SA_TG_DEFINITELY_UNSET}\"\n  chat_id: \"42\"\n")
+	_, err := NewFileSource(p).Load(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unset environment variables")
+	require.Contains(t, err.Error(), "SA_TG_DEFINITELY_UNSET")
+}
+
+// Half a config is a misconfiguration, not a silent half-on notifier: a token
+// without a chat (or vice versa) is rejected at load (rule 6).
+func TestLoad_TelegramRejectsPartialConfig(t *testing.T) {
+	for _, body := range []string{
+		"schema_version: 1\ntelegram:\n  bot_token: \"123:abc\"\n",
+		"schema_version: 1\ntelegram:\n  chat_id: \"42\"\n",
+	} {
+		p := writeTemp(t, body)
+		_, err := NewFileSource(p).Load(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "telegram")
+		require.Contains(t, err.Error(), "bot_token")
+		require.Contains(t, err.Error(), "chat_id")
+	}
+}
