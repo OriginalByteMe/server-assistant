@@ -1,0 +1,11 @@
+/bin/
+*.db
+*.db-shm
+*.db-wal
+# sqlc-generated code (regenerate with `make sqlc`)
+/internal/store/db/
+# local env / secrets
+.env
+*.local.yaml
+# local config holds secrets (token/chat); config.example.yaml is the template
+/config.yaml

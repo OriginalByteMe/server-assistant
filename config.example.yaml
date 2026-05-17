@@ -1,0 +1,18 @@
+# Server Assistant configuration. This file is the single source of truth
+# (CONVENTIONS rule 6). Copy to config.yaml and edit.
+#
+# Secrets must come from the environment, never be committed here. Any
+# ${VAR} reference is expanded from an environment variable at load time;
+# a missing referenced variable is a hard error (CONVENTIONS rule 7).
+
+schema_version: 1
+
+# Address the dashboard HTTP server binds to (used from issue 0002 on).
+http_addr: ":8080"
+
+database:
+  # Path to the SQLite file. Runtime state and history only — never config.
+  path: "server-assistant.db"
+# Example of a future env-sourced secret (Telegram, issue 0003):
+# telegram:
+#   bot_token: "${TELEGRAM_BOT_TOKEN}"
