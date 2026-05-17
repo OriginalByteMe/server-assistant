@@ -27,6 +27,11 @@ slices are `Feature`, not `Bug`.
 | `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
 | `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
+`ready-for-human` is a *pre-work triage label* — it marks an un-started issue
+that needs human implementation. Do not confuse it with the **In Review**
+*workflow state*, which marks completed work awaiting human verification (see
+the completion protocol in `docs/agents/issue-tracker.md`).
+
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the
 corresponding label string from these tables. Create the Linear label if it
 does not yet exist in the "Smart Server assistant" project.
