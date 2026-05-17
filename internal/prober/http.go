@@ -5,6 +5,7 @@ package prober
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -54,6 +55,18 @@ func (p *HTTP) Probe(ctx context.Context) (core.ProbeResult, error) {
 	resp, err := p.client.Do(req)
 	latency := time.Since(start)
 	if err != nil {
+		// A probe aborted because the parent context was canceled (daemon
+		// shutdown / SIGTERM) is not a measurement of the Service — it is the
+		// observer going away. Reporting DOWN here would let an operator-
+		// initiated stop commit a false outage and fire a spurious Alert
+		// (notably at debounce_n=1). The observer never collapses "can't tell"
+		// into "down" (CONVENTIONS rule 5 / ADR 0005); a canceled probe is not
+		// even a sample, so surface it as an error and the monitor skips it.
+		// The probe's own deadline yields context.DeadlineExceeded (a real
+		// "Service didn't answer" signal) and stays DOWN below.
+		if errors.Is(err, context.Canceled) {
+			return core.ProbeResult{}, fmt.Errorf("probe %s canceled: %w", p.name, err)
+		}
 		return core.ProbeResult{Status: core.StatusDown, Latency: latency, Err: err}, nil
 	}
 	defer func() { _ = resp.Body.Close() }()

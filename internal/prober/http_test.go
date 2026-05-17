@@ -2,6 +2,7 @@ package prober
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -60,6 +61,52 @@ func TestHTTP_TimeoutIsEnforced(t *testing.T) {
 
 	require.Equal(t, core.StatusDown, res.Status)
 	require.Error(t, res.Err)
+}
+
+// A probe aborted because the daemon is shutting down (parent context
+// canceled, e.g. SIGTERM) is NOT a measurement of the Service — it is the
+// observer going away. Surfacing it as DOWN would let an operator-initiated
+// stop commit a false outage and fire a spurious Alert (notably at
+// debounce_n=1). The observer never collapses "can't tell" into "down"
+// (CONVENTIONS rule 5 / ADR 0005); a canceled probe is not even a sample, so
+// Probe reports an error (which the monitor skips) and never returns DOWN.
+// This is distinct from TestHTTP_TimeoutIsEnforced — the probe's own deadline
+// is a real "Service didn't answer" signal and stays DOWN.
+func TestHTTP_ParentCancelIsNotDown(t *testing.T) {
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(reached) // request is now in flight at the handler
+		<-release      // hang until the test releases it
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	// Long per-probe timeout so the only thing that ends this probe is the
+	// parent cancel, not the probe's own deadline.
+	p := NewHTTP("svc", srv.URL, 10*time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var res core.ProbeResult
+	var err error
+	go func() {
+		res, err = p.Probe(ctx)
+		close(done)
+	}()
+
+	<-reached
+	cancel() // simulate graceful shutdown
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Probe did not return after parent cancel")
+	}
+
+	require.Error(t, err, "shutdown-canceled probe must surface as an error so the monitor skips record/debounce/notify")
+	require.True(t, errors.Is(err, context.Canceled), "error must wrap context.Canceled")
+	require.NotEqual(t, core.StatusDown, res.Status, "shutdown must never yield DOWN (rule 5 / ADR 0005)")
 }
 
 // An endpoint that answers but with a non-2xx status is DOWN: it is reachable

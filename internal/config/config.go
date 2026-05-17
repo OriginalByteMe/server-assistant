@@ -171,6 +171,16 @@ func (s *ServiceConfig) resolve() error {
 	if s.Name == "" {
 		return errors.New("name is required")
 	}
+	// The name is wired verbatim into the dashboard's HTML element id and the
+	// vendored SSE extension's sse-swap event identifier. That extension parses
+	// sse-swap as a comma-separated list, so a comma silently splits the
+	// subscription and live updates never fire for the Service; newlines/CR
+	// break SSE event framing, and quotes/angle-brackets break the HTML
+	// attribute. Reject these at load (rule 6: config is the source of truth)
+	// rather than ship a half-broken dashboard.
+	if strings.ContainsAny(s.Name, ",\n\r\"<>") {
+		return fmt.Errorf("name %q: contains characters unsafe for dashboard wiring (one of ,\\n\\r\\\"<>)", s.Name)
+	}
 	if s.URL == "" {
 		return errors.New("url is required")
 	}
