@@ -114,7 +114,7 @@ fi
 # 5. Branch-out: copy ONLY a bundle of the work branch + RESULT.json into a
 #    gitignored review dir. No merge. The host working tree is untouched.
 mkdir -p "${OUT}"
-docker exec "${CID}" git bundle create /workspace/work.bundle --all >/dev/null
+docker exec "${CID}" git bundle create /workspace/work.bundle "${BRANCH}" >/dev/null
 docker cp "${CID}:/workspace/work.bundle" "${OUT}/work.bundle"
 docker cp "${CID}:/workspace/RESULT.json" "${OUT}/RESULT.json" 2>/dev/null \
 	|| echo '{"ok":false,"error":"RESULT.json not produced"}' > "${OUT}/RESULT.json"
