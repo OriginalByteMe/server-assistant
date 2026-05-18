@@ -32,14 +32,14 @@ func TestLoad_ServiceRejectsBothURLAndTCP(t *testing.T) {
 	p := writeTemp(t, "schema_version: 1\nservices:\n  - name: x\n    url: \"https://x.test\"\n    tcp: \"x:22\"\n")
 	_, err := NewFileSource(p).Load(context.Background())
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "exactly one of url or tcp")
+	require.Contains(t, err.Error(), "exactly one of url, tcp or container")
 }
 
 func TestLoad_ServiceRejectsNeitherURLNorTCP(t *testing.T) {
 	p := writeTemp(t, "schema_version: 1\nservices:\n  - name: x\n")
 	_, err := NewFileSource(p).Load(context.Background())
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "exactly one of url or tcp")
+	require.Contains(t, err.Error(), "exactly one of url, tcp or container")
 }
 
 // The TCP target may embed a secret host via ${VAR}, expanded from the

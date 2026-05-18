@@ -78,14 +78,14 @@ func TestLoad_ServiceParsedWithDefaults(t *testing.T) {
 	require.Equal(t, 3, s.DebounceN)                   // default
 }
 
-// A Service with no probe target is rejected. ARK-8 added the TCP probe, so
-// the requirement is now "exactly one of url or tcp" (a Service is HTTP or
-// TCP, never neither — rule 6).
+// A Service with no probe target is rejected. ARK-8 added tcp and ARK-13
+// added container, so the requirement is now exactly one of url / tcp /
+// container — never several, never none (rule 6).
 func TestLoad_RejectsServiceWithoutURL(t *testing.T) {
 	p := writeTemp(t, "schema_version: 1\nservices:\n  - name: web\n")
 	_, err := NewFileSource(p).Load(context.Background())
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "exactly one of url or tcp is required")
+	require.Contains(t, err.Error(), "exactly one of url, tcp or container is required")
 }
 
 // A Service name is wired verbatim into the dashboard's HTML id and the
