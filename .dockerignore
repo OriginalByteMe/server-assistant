@@ -1,0 +1,11 @@
+# The ADR 0008 sandbox image (tools/agent/Dockerfile) only COPYs go.mod/go.sum
+# to prebake the cache; it never bakes the repo in (copy-in is at run time).
+# Keep the build context tiny so image builds are fast and reproducible.
+.git
+bin/
+*.db
+*.db-shm
+*.db-wal
+RESULT.json
+.env
+internal/store/db/

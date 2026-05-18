@@ -1,4 +1,7 @@
 /bin/
+# ADR 0008 sandbox verdict: written by `make agent-result`, copied out beside
+# the branch each run. A per-run artifact, never committed.
+/RESULT.json
 *.db
 *.db-shm
 *.db-wal
@@ -11,3 +14,5 @@
 /config.yaml
 # per-user local harness settings
 /.claude/settings.local.json
+# ADR 0008 branch-out review artifacts (bundles + RESULT.json per run)
+/tools/agent/out/
