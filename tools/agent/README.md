@@ -14,11 +14,45 @@ the single static binary — CONVENTIONS rule 1 governs *runtime* deps only
 | File | Role |
 |---|---|
 | `Dockerfile` | Frozen toolchain + the full module cache prebaked offline |
+| `sandcastle.sh` | One-command default entry point: picks a runtime (Docker Desktop preferred), then hands off to `run.sh` (ARK-21) |
 | `run.sh` | Copy-in / branch-out harness around a disposable container |
 | `result.sh` | Gate runner: writes `RESULT.json` + the completion marker (via `make agent-result`) |
 | `out/` | Per-run branch bundles + `RESULT.json` for review (gitignored) |
 
-## Run one issue end-to-end
+## One command: `/sandcastle <issue>` (the default path)
+
+Sandboxed execution is the **default**, not a manual procedure (ARK-21; ADR
+0008). The `sandcastle` skill (`.claude/skills/sandcastle/`) exposes one
+command that picks a runtime and runs the issue in the sandbox:
+
+```bash
+# self-test / offline gate proof:
+tools/agent/sandcastle.sh ARK-NN
+
+# real issue work:
+AGENT_CMD='<command that does the issue work, run at the repo root>' \
+  tools/agent/sandcastle.sh ARK-NN
+
+# first run, or after a CONVENTIONS dep-table / pinned-tool change:
+tools/agent/sandcastle.sh --rebuild ARK-NN
+```
+
+`--rebuild`, `--keep`, `--branch NAME` and `AGENT_CMD` pass straight through
+to `run.sh`, so everything below still applies — `sandcastle.sh` only adds
+runtime selection in front of it:
+
+- **Docker Desktop is preferred.** It is detected via its `desktop-linux`
+  CLI context or a current Docker-Desktop daemon, and used first.
+- **No silent host run.** If Docker Desktop is unavailable the command fails
+  loudly and non-zero. The only alternative is an *explicitly* configured
+  `SANDCASTLE_FALLBACK_DOCKER="<docker-like cmd>"` (e.g. `docker` for a plain
+  Engine, or `podman`) — still a container runtime, never the host. There is
+  deliberately no host-execution code path.
+
+Prefer this over calling `run.sh` directly. `run.sh` remains the harness that
+owns the ADR 0008 contract; `sandcastle.sh` is just the default front door.
+
+## Run one issue end-to-end (the underlying harness)
 
 ```bash
 # First run (or after a dependency/tool change): build the image. This is the

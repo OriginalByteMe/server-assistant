@@ -26,6 +26,15 @@
 set -euo pipefail
 
 IMAGE="server-assistant-sandbox:latest"
+
+# Container runtime is an indirection, not a hardcode, so the sandcastle skill
+# (ARK-21) can PREFER Docker Desktop (DOCKER="docker --context desktop-linux")
+# or an explicitly configured fallback. It is read as words so a multi-flag
+# value (the Docker Desktop context) survives. Default stays plain `docker`.
+# This never enables a host run — the agent only ever runs inside the
+# disposable container this script creates (ADR 0008).
+read -r -a DOCKER <<< "${DOCKER:-docker}"
+
 REBUILD=0
 KEEP=0
 BRANCH=""
@@ -52,7 +61,7 @@ STAGING="$(mktemp -d)"
 CID=""
 
 cleanup() {
-	[ -n "${CID}" ] && [ "${KEEP}" -eq 0 ] && docker rm -f "${CID}" >/dev/null 2>&1 || true
+	[ -n "${CID}" ] && [ "${KEEP}" -eq 0 ] && "${DOCKER[@]}" rm -f "${CID}" >/dev/null 2>&1 || true
 	[ -n "${CID}" ] && [ "${KEEP}" -eq 1 ] && echo "container kept: ${CID}"
 	rm -rf "${STAGING}"
 }
@@ -60,9 +69,9 @@ trap cleanup EXIT
 
 # 1. Image: build only if missing or --rebuild. This is the single, deliberate
 #    network step (prebakes toolchain + the full module cache; ADR 0008).
-if [ "${REBUILD}" -eq 1 ] || ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+if [ "${REBUILD}" -eq 1 ] || ! "${DOCKER[@]}" image inspect "${IMAGE}" >/dev/null 2>&1; then
 	echo ">> building sandbox image (network: one-time cache warm)"
-	docker build -f tools/agent/Dockerfile -t "${IMAGE}" .
+	"${DOCKER[@]}" build -f tools/agent/Dockerfile -t "${IMAGE}" .
 fi
 
 # 2. Copy-in source: a clean local clone (full .git, clean tree), NOT a
@@ -73,26 +82,26 @@ git clone --quiet --local --no-hardlinks "${REPO}" "${STAGING}/repo"
 
 # 3. Disposable container, ZERO network, ZERO secrets: no -e, no volumes,
 #    --network=none. Offline is structural, not policy (CONVENTIONS rule 9).
-CID="$(docker run -d --network=none --workdir /workspace "${IMAGE}" sleep infinity)"
+CID="$("${DOCKER[@]}" run -d --network=none --workdir /workspace "${IMAGE}" sleep infinity)"
 echo ">> sandbox container ${CID:0:12} (network: none, secrets: none)"
 
 # Copy the staged repo INTO the container (snapshot, not a mount). STAGING is
 # torn down by the EXIT trap, never mid-run.
-docker cp "${STAGING}/repo/." "${CID}:/workspace"
+"${DOCKER[@]}" cp "${STAGING}/repo/." "${CID}:/workspace"
 
 # 4. Inside the sandbox: a sandbox git identity, the work branch, the optional
 #    agent, then the make gate that writes RESULT.json + the marker.
 #    docker cp preserves host uids; the container runs as root, so git sees
 #    "dubious ownership". The tree is a disposable copy — trust it explicitly.
-docker exec "${CID}" git config --global --add safe.directory /workspace
-docker exec "${CID}" git config --global user.email "agent@sandbox.local"
-docker exec "${CID}" git config --global user.name  "Sandbox Agent"
-docker exec "${CID}" git checkout -q -b "${BRANCH}"
+"${DOCKER[@]}" exec "${CID}" git config --global --add safe.directory /workspace
+"${DOCKER[@]}" exec "${CID}" git config --global user.email "agent@sandbox.local"
+"${DOCKER[@]}" exec "${CID}" git config --global user.name  "Sandbox Agent"
+"${DOCKER[@]}" exec "${CID}" git checkout -q -b "${BRANCH}"
 
 if [ -n "${AGENT_CMD:-}" ]; then
 	echo ">> running agent: ${AGENT_CMD}"
-	docker exec -e ISSUE="${ISSUE}" "${CID}" bash -lc "${AGENT_CMD}"
-	docker exec "${CID}" bash -lc 'git add -A && git diff --cached --quiet || git commit -q -m "'"${ISSUE}"': agent changes"'
+	"${DOCKER[@]}" exec -e ISSUE="${ISSUE}" "${CID}" bash -lc "${AGENT_CMD}"
+	"${DOCKER[@]}" exec "${CID}" bash -lc 'git add -A && git diff --cached --quiet || git commit -q -m "'"${ISSUE}"': agent changes"'
 else
 	echo ">> no AGENT_CMD: bootstrap/self-test mode (offline gate proof only)"
 fi
@@ -101,7 +110,7 @@ fi
 # and reads one structured verdict file instead of polling (ADR 0008).
 MARKER="SANDCASTLE_RESULT_COMPLETE"
 set +e
-GATE_LOG="$(docker exec -e ISSUE="${ISSUE}" "${CID}" make agent-result 2>&1)"
+GATE_LOG="$("${DOCKER[@]}" exec -e ISSUE="${ISSUE}" "${CID}" make agent-result 2>&1)"
 GATE_RC=$?
 set -e
 printf '%s\n' "${GATE_LOG}"
@@ -114,9 +123,9 @@ fi
 # 5. Branch-out: copy ONLY a bundle of the work branch + RESULT.json into a
 #    gitignored review dir. No merge. The host working tree is untouched.
 mkdir -p "${OUT}"
-docker exec "${CID}" git bundle create /workspace/work.bundle "${BRANCH}" >/dev/null
-docker cp "${CID}:/workspace/work.bundle" "${OUT}/work.bundle"
-docker cp "${CID}:/workspace/RESULT.json" "${OUT}/RESULT.json" 2>/dev/null \
+"${DOCKER[@]}" exec "${CID}" git bundle create /workspace/work.bundle "${BRANCH}" >/dev/null
+"${DOCKER[@]}" cp "${CID}:/workspace/work.bundle" "${OUT}/work.bundle"
+"${DOCKER[@]}" cp "${CID}:/workspace/RESULT.json" "${OUT}/RESULT.json" 2>/dev/null \
 	|| echo '{"ok":false,"error":"RESULT.json not produced"}' > "${OUT}/RESULT.json"
 
 echo
