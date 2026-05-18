@@ -8,7 +8,7 @@ GOOSE_VERSION         := latest
 SQLC_VERSION          := latest
 GOLANGCI_LINT_VERSION := latest
 
-.PHONY: build run test lint sqlc tidy tools clean
+.PHONY: build run test lint smoke sqlc tidy tools clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o $(BINARY) $(PKG)
@@ -21,6 +21,12 @@ test:
 
 lint:
 	golangci-lint run
+
+# ADR 0008 boot contract: build the binary, boot it, wait for the ready log
+# line, SIGTERM, assert clean exit. Pure (stdlib testing + os/exec, no new
+# dependency); gated behind the `smoke` build tag so `make test` never runs it.
+smoke:
+	go test -tags smoke -count=1 -run TestSmokeBoot ./cmd/server-assistant
 
 sqlc:
 	sqlc generate
