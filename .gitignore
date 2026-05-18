@@ -14,3 +14,5 @@
 /config.yaml
 # per-user local harness settings
 /.claude/settings.local.json
+# ADR 0008 branch-out review artifacts (bundles + RESULT.json per run)
+/tools/agent/out/
