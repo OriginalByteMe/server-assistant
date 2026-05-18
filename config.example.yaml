@@ -19,6 +19,9 @@ database:
 #   poll_interval 30s · timeout 10s · latency_threshold 1s · debounce_n 3
 # A reachable Service slower than latency_threshold is DEGRADED, not DOWN.
 # A Status change commits (and Alerts) only after debounce_n agreeing Probes.
+# Each Service is HTTP or TCP — set exactly one of `url` or `tcp` (host:port),
+# never both, never neither. A `tcp` Service (game server, database, …) feeds
+# the same Status/debounce/dashboard/Alert pipeline as an HTTP one.
 services:
   - name: example
     url: "https://example.test"
@@ -29,6 +32,9 @@ services:
   # A URL may embed a secret via ${VAR}, expanded from the environment:
   # - name: private
   #   url: "https://${PRIVATE_HOST}/health"
+  # A non-HTTP Service is probed by opening a TCP connection to host:port:
+  # - name: minecraft
+  #   tcp: "${MINECRAFT_ADDR}"   # e.g. 192.168.1.20:25565
 
 # The single Unraid Host, monitored for reachability (ADR 0005). Optional:
 # omit the whole block to run the bare spine with no gate. When set, if the

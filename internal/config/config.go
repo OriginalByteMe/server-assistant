@@ -78,7 +78,8 @@ func (t TelegramConfig) Configured() bool {
 // library magic (rule 3). Consumers read the resolved typed accessors.
 type ServiceConfig struct {
 	Name             string `yaml:"name"`
-	URL              string `yaml:"url"`
+	URL              string `yaml:"url"` // HTTP(S) Service: exactly one of url / tcp
+	TCPAddr          string `yaml:"tcp"` // non-HTTP Service: host:port TCP probe
 	PollInterval     string `yaml:"poll_interval"`
 	Timeout          string `yaml:"timeout"`
 	LatencyThreshold string `yaml:"latency_threshold"`
@@ -145,8 +146,9 @@ func (c *Config) resolveSecrets() error {
 	c.HTTPAddr = r.expand(c.HTTPAddr)
 	c.Database.Path = r.expand(c.Database.Path)
 	for i := range c.Services {
-		// A Service URL may embed a secret host/token via ${VAR}.
+		// A Service URL or TCP target may embed a secret host/token via ${VAR}.
 		c.Services[i].URL = r.expand(c.Services[i].URL)
+		c.Services[i].TCPAddr = r.expand(c.Services[i].TCPAddr)
 	}
 	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
 	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
@@ -244,8 +246,11 @@ func (s *ServiceConfig) resolve() error {
 	if err := checkDashboardSafeName(s.Name); err != nil {
 		return err
 	}
-	if s.URL == "" {
-		return errors.New("url is required")
+	// A Service is either HTTP (url) or TCP (tcp), never both, never neither:
+	// the probe kind must be unambiguous (rule 6 — config is the source of
+	// truth). main wires prober.NewHTTP or prober.NewTCP from this.
+	if (s.URL == "") == (s.TCPAddr == "") {
+		return errors.New("exactly one of url or tcp is required")
 	}
 	var err error
 	if s.poll, err = parseDurationDefault(s.PollInterval, 30*time.Second); err != nil {

@@ -81,9 +81,17 @@ func run() error {
 
 	svcs := make([]monitor.Service, 0, len(cfg.Services))
 	for _, s := range cfg.Services {
+		// Probe kind is unambiguous: config.validate() guarantees exactly one
+		// of url / tcp (ARK-8). Both feed the same prober-agnostic spine.
+		var p core.Prober
+		if s.TCPAddr != "" {
+			p = prober.NewTCP(s.Name, s.TCPAddr, s.ProbeTimeout())
+		} else {
+			p = prober.NewHTTP(s.Name, s.URL, s.ProbeTimeout())
+		}
 		svcs = append(svcs, monitor.Service{
 			Name:      s.Name,
-			Prober:    prober.NewHTTP(s.Name, s.URL, s.ProbeTimeout()),
+			Prober:    p,
 			Threshold: s.Threshold(),
 			Poll:      s.Poll(),
 			DebounceN: s.DebounceN,
