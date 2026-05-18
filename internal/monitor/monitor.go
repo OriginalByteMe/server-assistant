@@ -159,12 +159,21 @@ func (m *Monitor) Resume(ctx context.Context) error {
 func (m *Monitor) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	if m.host != nil {
+		// Establish the gate from a REAL Host measurement before any Service
+		// loop starts. On a cold start (no persisted Host Status) the gate
+		// defaults open; launching the Service loops concurrently with the
+		// host loop would let a Service probe and commit a false DOWN (and
+		// fire a per-Service Alert) in the window before the first host probe
+		// closes the gate — violating ADR 0005 rule 5. Synchronous here, so
+		// the Service goroutines below cannot start until the gate reflects
+		// reality. The probe carries its own timeout (rule 4), so this cannot
+		// stall startup indefinitely.
+		m.hostProbeOnce(ctx)
 		wg.Add(1)
 		go func(h *hostRuntime) {
 			defer wg.Done()
 			t := time.NewTicker(h.poll)
 			defer t.Stop()
-			m.hostProbeOnce(ctx) // establish reachability before trusting Services
 			for {
 				select {
 				case <-ctx.Done():
