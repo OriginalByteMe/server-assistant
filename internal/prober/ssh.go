@@ -3,6 +3,7 @@ package prober
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"server-assistant/internal/core"
@@ -76,4 +77,99 @@ func (p *ContainerProbe) Probe(ctx context.Context) (core.ProbeResult, error) {
 		// tell, so surface an error rather than collapse to DOWN (rule 5).
 		return core.ProbeResult{}, fmt.Errorf("container probe %s: unparseable state %q", p.name, out)
 	}
+}
+
+// HostMetricsProbe reads one structured key=value report over SSH and derives
+// the Host's Status from array state, disk/parity health, and CPU/RAM
+// pressure. It is a core.Prober, so it drives Host Status through the same
+// debounce → commit → dashboard → Alert pipeline (and ARK-12's gate) as any
+// other subject. The remote command is read-only and bounded.
+//
+// Derivation (v1): array not STARTED ⇒ DOWN (the Host is not doing its job);
+// any disabled/invalid disk ⇒ DEGRADED (redundancy compromised); sustained
+// load (>2× CPUs) or <5% free memory ⇒ DEGRADED; otherwise UP. A failure or a
+// report missing the critical array field is "can't tell" — an error, never
+// DOWN (rule 5 / ADR 0005); ARK-12's gate owns UNKNOWN.
+type HostMetricsProbe struct {
+	name   string
+	runner Runner
+}
+
+var _ core.Prober = (*HostMetricsProbe)(nil)
+
+func NewHostMetricsProbe(name string, r Runner) *HostMetricsProbe {
+	return &HostMetricsProbe{name: name, runner: r}
+}
+
+func (p *HostMetricsProbe) Name() string { return p.name }
+
+// hostMetricsCmd emits a fixed, parseable key=value report in one read-only
+// call: array state + disk/parity counters from mdcmd, load from
+// /proc/loadavg, CPU count, and memory from /proc/meminfo. Tests feed canned
+// output through the Runner seam (rule 9); the remote command's behaviour on
+// real Unraid is the external verification this issue calls out.
+const hostMetricsCmd = `mdcmd status 2>/dev/null | grep -E '^(mdState|mdNumDisabled|mdNumInvalid)=' ; ` +
+	`echo "load1=$(cut -d' ' -f1 /proc/loadavg)" ; ` +
+	`echo "cpus=$(nproc)" ; ` +
+	`awk '/^MemTotal:/{print "memTotal="$2} /^MemAvailable:/{print "memAvailable="$2}' /proc/meminfo`
+
+func (p *HostMetricsProbe) Probe(ctx context.Context) (core.ProbeResult, error) {
+	out, err := p.runner.Run(ctx, hostMetricsCmd)
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
+
+	kv := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			kv[k] = strings.TrimSpace(v)
+		}
+	}
+
+	// mdState is the one field we cannot derive Host health without. Its
+	// absence is "can't tell", never DOWN (rule 5 / ADR 0005).
+	state, ok := kv["mdState"]
+	if !ok {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: report missing mdState: %q", p.name, out)
+	}
+	if state != "STARTED" {
+		return core.ProbeResult{
+			Status: core.StatusDown,
+			Err:    fmt.Errorf("%s array mdState=%s (not STARTED)", p.name, state),
+		}, nil
+	}
+
+	if atoiDefault(kv["mdNumDisabled"], 0) > 0 || atoiDefault(kv["mdNumInvalid"], 0) > 0 {
+		return core.ProbeResult{Status: core.StatusDegraded}, nil
+	}
+
+	// Sustained overload: load1 above 2× the core count.
+	load1 := atofDefault(kv["load1"], 0)
+	cpus := atofDefault(kv["cpus"], 1)
+	if cpus > 0 && load1 > 2*cpus {
+		return core.ProbeResult{Status: core.StatusDegraded}, nil
+	}
+
+	// Memory pressure: under 5% available.
+	memTotal := atofDefault(kv["memTotal"], 0)
+	memAvail := atofDefault(kv["memAvailable"], 0)
+	if memTotal > 0 && memAvail/memTotal < 0.05 {
+		return core.ProbeResult{Status: core.StatusDegraded}, nil
+	}
+
+	return core.ProbeResult{Status: core.StatusUp}, nil
+}
+
+func atoiDefault(s string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+		return n
+	}
+	return def
+}
+
+func atofDefault(s string, def float64) float64 {
+	if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
+		return f
+	}
+	return def
 }
