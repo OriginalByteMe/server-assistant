@@ -40,6 +40,23 @@ var _ Runner = (*SSHClient)(nil)
 
 func NewSSHClient(cfg SSHConfig) *SSHClient { return &SSHClient{cfg: cfg} }
 
+// ParseHostKey turns the optional host_key config (an SSH authorized-key
+// line) into a verification callback. Empty ⇒ accept-any with insecure=true:
+// v1 deliberately tolerates this for a homelab (ADR 0003 defers host-key
+// pinning to M2) but the wiring layer must warn once. A non-empty line pins
+// the Host to exactly that key. This keeps golang.org/x/crypto/ssh out of the
+// composition root.
+func ParseHostKey(authorized string) (cb gossh.HostKeyCallback, insecure bool, err error) {
+	if authorized == "" {
+		return gossh.InsecureIgnoreHostKey(), true, nil //nolint:gosec // ADR 0003: v1 defers host-key pinning
+	}
+	pk, _, _, _, perr := gossh.ParseAuthorizedKey([]byte(authorized))
+	if perr != nil {
+		return nil, false, fmt.Errorf("ssh host_key: invalid authorized-key line")
+	}
+	return gossh.FixedHostKey(pk), false, nil
+}
+
 func (c *SSHClient) authMethods() ([]gossh.AuthMethod, error) {
 	var m []gossh.AuthMethod
 	if len(c.cfg.PrivateKey) > 0 {
