@@ -40,17 +40,19 @@ die() { echo "sandcastle: $*" >&2; exit 3; }
 # insist at least one non-flag argument (the issue) is present, so an empty
 # invocation fails fast instead of silently self-testing 'unknown'.
 have_issue=0
+skip_next=0
 for a in "$@"; do
+	if [ "${skip_next}" -eq 1 ]; then
+		skip_next=0              # this token is --branch's value, not the issue
+		continue
+	fi
 	case "${a}" in
-		--branch) ;;            # its value is the next arg, not an issue
-		--*) ;;
+		--branch) skip_next=1 ;; # the NEXT token is the branch name — skip it
+		--*) ;;                  # other flags take no value
 		*) have_issue=1 ;;
 	esac
 done
 [ "${have_issue}" -eq 1 ] || die "usage: sandcastle.sh [--rebuild] [--keep] [--branch NAME] <ISSUE>"
-
-command -v docker >/dev/null 2>&1 \
-	|| die "the 'docker' CLI is not installed. Sandcastle needs Docker Desktop; it will NOT run the agent on the host."
 
 # A reachable, Docker-Desktop daemon reports OperatingSystem == "Docker
 # Desktop". `timeout` keeps a dead daemon from hanging the command.
@@ -69,14 +71,20 @@ is_docker_desktop() {
 
 SELECTED=""
 
-# Preference 1a: the explicit Docker Desktop CLI context (how Docker Desktop
-# exposes itself on Linux), even when it is not the current context.
-if docker context inspect desktop-linux >/dev/null 2>&1 \
-	&& is_docker_desktop docker --context desktop-linux; then
-	SELECTED="docker --context desktop-linux"
-# Preference 1b: the current context already IS Docker Desktop.
-elif is_docker_desktop docker; then
-	SELECTED="docker"
+# Docker Desktop detection needs the `docker` CLI. Its absence is NOT fatal
+# here: an explicitly configured SANDCASTLE_FALLBACK_DOCKER (e.g. podman) is
+# still honoured below — only the unconfigured case fails loudly. This must
+# never become a silent host run (ADR 0008).
+if command -v docker >/dev/null 2>&1; then
+	# Preference 1a: the explicit Docker Desktop CLI context (how Docker
+	# Desktop exposes itself on Linux), even when it is not the current one.
+	if docker context inspect desktop-linux >/dev/null 2>&1 \
+		&& is_docker_desktop docker --context desktop-linux; then
+		SELECTED="docker --context desktop-linux"
+	# Preference 1b: the current context already IS Docker Desktop.
+	elif is_docker_desktop docker; then
+		SELECTED="docker"
+	fi
 fi
 
 if [ -n "${SELECTED}" ]; then
