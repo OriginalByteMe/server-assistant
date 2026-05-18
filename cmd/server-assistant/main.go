@@ -91,6 +91,18 @@ func run() error {
 	}
 
 	mon := monitor.New(st, notify, svcs)
+	// Optional Host reachability gate (ADR 0005). Absent => no gate, the bare
+	// spine is wired unchanged (ADR 0006 rule 2). SetHost must precede Resume
+	// so a restart restores the gate from the persisted Host Status.
+	if cfg.Host != nil {
+		mon.SetHost(monitor.Host{
+			Name:      cfg.Host.Name,
+			Prober:    prober.NewReachability(cfg.Host.Name, cfg.Host.Address, cfg.Host.ProbeTimeout()),
+			Poll:      cfg.Host.Poll(),
+			DebounceN: cfg.Host.DebounceN,
+		})
+		slog.Info("host reachability gate enabled", "host", cfg.Host.Name)
+	}
 	if err := mon.Resume(ctx); err != nil {
 		return err
 	}

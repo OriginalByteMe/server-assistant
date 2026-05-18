@@ -30,6 +30,20 @@ services:
   # - name: private
   #   url: "https://${PRIVATE_HOST}/health"
 
+# The single Unraid Host, monitored for reachability (ADR 0005). Optional:
+# omit the whole block to run the bare spine with no gate. When set, if the
+# Server Assistant box cannot reach the Host the gate turns its Services
+# UNKNOWN (never DOWN) and fires exactly one "Host unreachable" Alert — never
+# one per Service, and recovery does not double-alert. address is a host:port
+# TCP target (any open Host port); it may embed a secret via ${VAR}. Optional
+# knobs default if omitted:  poll_interval 30s · timeout 5s · debounce_n 3
+# host:
+#   name: unraid
+#   address: "${UNRAID_ADDR}"   # e.g. 192.168.1.10:22
+#   poll_interval: "30s"
+#   timeout: "5s"
+#   debounce_n: 3
+
 # One-way Alert channel over Telegram (issue 0003). Optional: omit the whole
 # block to keep Alerts log-only. Both fields are secrets — supply them via the
 # environment (never commit them), and set both or neither. chat_id is a

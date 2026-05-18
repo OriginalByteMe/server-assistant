@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"server-assistant/internal/core"
@@ -24,10 +25,31 @@ type Service struct {
 	DebounceN int
 }
 
+// Host is the single monitored Unraid box as a first-class subject (CONTEXT.md;
+// ADR 0005). Its reachability Probe gates every Service: when the Server
+// Assistant box cannot reach the Host, its Services become UNKNOWN (never
+// DOWN) and exactly one "Host unreachable" Alert fires. Optional — a Monitor
+// with no Host set has no gate and behaves exactly as the bare spine
+// (backward-compatible, ADR 0006 rule 2).
+type Host struct {
+	Name      string
+	Prober    core.Prober
+	Poll      time.Duration
+	DebounceN int
+}
+
 type serviceRuntime struct {
 	name      string
 	prober    core.Prober
 	threshold time.Duration
+	poll      time.Duration
+	debounceN int
+	deb       *core.Debouncer
+}
+
+type hostRuntime struct {
+	name      string
+	prober    core.Prober
 	poll      time.Duration
 	debounceN int
 	deb       *core.Debouncer
@@ -38,6 +60,14 @@ type Monitor struct {
 	store    core.Store
 	notifier core.Notifier
 	svcs     []*serviceRuntime
+
+	host *hostRuntime
+	// gate is the ADR 0005 reachability gate: true = Host reachable (or no
+	// Host configured) so Services derive Status normally; false = blind, so
+	// Services are UNKNOWN and their Probers are not called. It tracks the
+	// LATEST Host Probe (not the debounced commit) so a false DOWN can never
+	// slip through the debounce window (CONVENTIONS rule 5).
+	gate atomic.Bool
 
 	mu    sync.RWMutex
 	views map[string]core.ServiceView
@@ -65,7 +95,26 @@ func New(store core.Store, notifier core.Notifier, svcs []Service) *Monitor {
 		})
 		m.views[s.Name] = core.ServiceView{Name: s.Name, Status: core.StatusUnknown}
 	}
+	// No Host configured yet: the gate is open so the bare spine is unchanged.
+	m.gate.Store(true)
 	return m
+}
+
+// SetHost installs the Host reachability gate. Call before Resume/Run. With no
+// Host set the Monitor is the bare v1 spine (ADR 0006 rule 2); with one set,
+// an unreachable Host turns its Services UNKNOWN and fires exactly one "Host
+// unreachable" Alert (ADR 0005). The Host is also a first-class dashboard row.
+func (m *Monitor) SetHost(h Host) {
+	m.host = &hostRuntime{
+		name:      h.Name,
+		prober:    h.Prober,
+		poll:      h.Poll,
+		debounceN: h.DebounceN,
+		deb:       core.NewDebouncer(h.DebounceN),
+	}
+	m.mu.Lock()
+	m.views[h.Name] = core.ServiceView{Name: h.Name, Status: core.StatusUnknown}
+	m.mu.Unlock()
 }
 
 // Resume seeds each Service's debounce and view from the last committed
@@ -89,6 +138,19 @@ func (m *Monitor) Resume(ctx context.Context) error {
 		m.views[s.name] = core.ServiceView{Name: s.name, Status: cs.Status, LastChecked: cs.ChangedAt}
 		m.mu.Unlock()
 	}
+	if m.host != nil {
+		if cs, ok := byName[m.host.name]; ok {
+			m.host.deb = core.NewDebouncerWithStatus(m.host.debounceN, cs.Status)
+			// Restore the gate from the persisted Host Status so a restart
+			// resumes blind/sighted instead of re-alerting. Only a committed
+			// DOWN closes the gate; UNKNOWN (never proven) leaves it open so
+			// Services are not silently UNKNOWN on every boot.
+			m.gate.Store(cs.Status != core.StatusDown)
+			m.mu.Lock()
+			m.views[m.host.name] = core.ServiceView{Name: m.host.name, Status: cs.Status, LastChecked: cs.ChangedAt}
+			m.mu.Unlock()
+		}
+	}
 	return nil
 }
 
@@ -96,6 +158,32 @@ func (m *Monitor) Resume(ctx context.Context) error {
 // waits for every loop to exit cleanly (CONVENTIONS rule 4).
 func (m *Monitor) Run(ctx context.Context) {
 	var wg sync.WaitGroup
+	if m.host != nil {
+		// Establish the gate from a REAL Host measurement before any Service
+		// loop starts. On a cold start (no persisted Host Status) the gate
+		// defaults open; launching the Service loops concurrently with the
+		// host loop would let a Service probe and commit a false DOWN (and
+		// fire a per-Service Alert) in the window before the first host probe
+		// closes the gate — violating ADR 0005 rule 5. Synchronous here, so
+		// the Service goroutines below cannot start until the gate reflects
+		// reality. The probe carries its own timeout (rule 4), so this cannot
+		// stall startup indefinitely.
+		m.hostProbeOnce(ctx)
+		wg.Add(1)
+		go func(h *hostRuntime) {
+			defer wg.Done()
+			t := time.NewTicker(h.poll)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					m.hostProbeOnce(ctx)
+				}
+			}
+		}(m.host)
+	}
 	for _, s := range m.svcs {
 		wg.Add(1)
 		go func(s *serviceRuntime) {
@@ -117,7 +205,84 @@ func (m *Monitor) Run(ctx context.Context) {
 	wg.Wait()
 }
 
+// hostProbeOnce takes one Host reachability measurement. The gate is set from
+// THIS Probe immediately (not the debounced commit) so a false Service DOWN
+// can never slip through the debounce window (CONVENTIONS rule 5). The
+// debouncer governs only the Alert: exactly one "Host unreachable" on a
+// committed transition to blind, exactly one "Host reachable" on recovery —
+// never one per Service, never a per-poll storm.
+func (m *Monitor) hostProbeOnce(ctx context.Context) {
+	h := m.host
+	res, err := h.prober.Probe(ctx)
+	if err != nil {
+		// A canceled probe (shutdown) is not a measurement of the Host —
+		// never gate or alert on it (ADR 0005, mirrors the Service path).
+		slog.Error("host probe error", "host", h.name, "err", err)
+		return
+	}
+	reachable := res.Status == core.StatusUp
+	hostStatus := core.StatusDown
+	if reachable {
+		hostStatus = core.StatusUp
+	}
+	now := time.Now().UTC()
+
+	// Publish the latest reachability to the gate and detect the transition in
+	// one race-free step: Swap returns the prior value.
+	wasReachable := m.gate.Swap(reachable)
+
+	m.setView(core.ServiceView{Name: h.name, Status: hostStatus, Latency: res.Latency, LastChecked: now})
+
+	if wasReachable && !reachable {
+		// Gate just closed: every Service is now blind. Force them UNKNOWN and
+		// push it so the dashboard reflects "can't tell", not a stale Status.
+		for _, s := range m.svcs {
+			v := core.ServiceView{Name: s.name, Status: core.StatusUnknown, LastChecked: now}
+			m.setView(v)
+			m.hub.broadcast(v)
+		}
+	}
+
+	committed, changed := h.deb.Observe(hostStatus)
+	if changed {
+		if serr := m.store.SaveCommittedStatus(ctx, core.CommittedStatus{
+			Service: h.name, Status: committed, ChangedAt: now,
+		}); serr != nil {
+			slog.Error("save committed status", "host", h.name, "err", serr)
+		}
+		msg := h.name + " is reachable"
+		if committed == core.StatusDown {
+			msg = h.name + " is unreachable"
+		}
+		if nerr := m.notifier.Notify(ctx, core.Alert{
+			Subject: h.name, Status: committed, Message: msg,
+		}); nerr != nil {
+			slog.Error("notify", "host", h.name, "err", nerr)
+		}
+		slog.Info("committed host status change", "host", h.name, "status", committed.String())
+	}
+	m.hub.broadcast(core.ServiceView{Name: h.name, Status: hostStatus, Latency: res.Latency, LastChecked: now})
+}
+
 func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
+	// ADR 0005 gate: while the Host is unreachable the observer is blind. Do
+	// not probe at all — the debouncer stays frozen so no false DOWN can
+	// commit, and the Service shows UNKNOWN (never DOWN). On recovery the
+	// frozen committed Status resumes, so a still-healthy Service goes
+	// UNKNOWN→UP with no Alert (no double-alert), while one that genuinely
+	// died debounces to a single real DOWN after the blind window.
+	if m.host != nil && !m.gate.Load() {
+		m.mu.RLock()
+		cur := m.views[s.name].Status
+		m.mu.RUnlock()
+		if cur != core.StatusUnknown {
+			v := core.ServiceView{Name: s.name, Status: core.StatusUnknown, LastChecked: time.Now().UTC()}
+			m.setView(v)
+			m.hub.broadcast(v)
+		}
+		return
+	}
+
 	res, err := s.prober.Probe(ctx)
 	if err != nil {
 		slog.Error("probe error", "service", s.name, "err", err)

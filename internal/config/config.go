@@ -27,7 +27,31 @@ type Config struct {
 	Database      DatabaseConfig  `yaml:"database"`
 	Services      []ServiceConfig `yaml:"services"`
 	Telegram      TelegramConfig  `yaml:"telegram"`
+	// Host is the optional single Unraid box, monitored for reachability. A
+	// pointer so "absent" (nil) is distinct from "present and empty": absent
+	// means no ADR 0005 gate and the bare spine is wired unchanged.
+	Host *HostConfig `yaml:"host"`
 }
+
+// HostConfig defines the single Host and its reachability Probe (ADR 0005).
+// When set, an unreachable Host turns its Services UNKNOWN (never DOWN) and
+// fires exactly one "Host unreachable" Alert. Durations are Go duration
+// strings parsed in validate() (no library magic — rule 3).
+type HostConfig struct {
+	Name         string `yaml:"name"`
+	Address      string `yaml:"address"` // host:port reachability target (TCP dial)
+	PollInterval string `yaml:"poll_interval"`
+	Timeout      string `yaml:"timeout"`
+	DebounceN    int    `yaml:"debounce_n"`
+
+	poll, probeTimeout time.Duration // resolved by validate()
+}
+
+// Poll is how often the Host reachability Probe runs.
+func (h HostConfig) Poll() time.Duration { return h.poll }
+
+// ProbeTimeout is the per-Probe dial deadline (rule 4).
+func (h HostConfig) ProbeTimeout() time.Duration { return h.probeTimeout }
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
@@ -126,6 +150,10 @@ func (c *Config) resolveSecrets() error {
 	}
 	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
 	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
+	if c.Host != nil {
+		// The reachability target may embed a secret host via ${VAR}.
+		c.Host.Address = r.expand(c.Host.Address)
+	}
 	return r.err()
 }
 
@@ -181,6 +209,17 @@ func (c *Config) validate() error {
 		}
 		seen[c.Services[i].Name] = struct{}{}
 	}
+	if c.Host != nil {
+		if err := c.Host.resolve(); err != nil {
+			return err
+		}
+		// Host and Services share the dashboard subject namespace (one row
+		// per name, one committed-Status key) — a collision would make one
+		// silently shadow the other.
+		if _, dup := seen[c.Host.Name]; dup {
+			return fmt.Errorf("host name %q collides with a service of the same name", c.Host.Name)
+		}
+	}
 	// A half-filled telegram block is a misconfiguration, not a silent
 	// half-on notifier: require both or neither (rule 6).
 	if (c.Telegram.BotToken == "") != (c.Telegram.ChatID == "") {
@@ -202,8 +241,8 @@ func (s *ServiceConfig) resolve() error {
 	// break SSE event framing, and quotes/angle-brackets break the HTML
 	// attribute. Reject these at load (rule 6: config is the source of truth)
 	// rather than ship a half-broken dashboard.
-	if strings.ContainsAny(s.Name, ",\n\r\"<>") {
-		return fmt.Errorf("name %q: contains characters unsafe for dashboard wiring (one of ,\\n\\r\\\"<>)", s.Name)
+	if err := checkDashboardSafeName(s.Name); err != nil {
+		return err
 	}
 	if s.URL == "" {
 		return errors.New("url is required")
@@ -223,6 +262,49 @@ func (s *ServiceConfig) resolve() error {
 	}
 	if s.DebounceN < 1 {
 		return fmt.Errorf("debounce_n must be >= 1, got %d", s.DebounceN)
+	}
+	return nil
+}
+
+// checkDashboardSafeName rejects names carrying characters that break the
+// dashboard wiring. The name is wired verbatim into an HTML element id and the
+// vendored SSE extension's sse-swap event identifier; that extension parses
+// sse-swap as a comma-separated list, so a comma silently splits the
+// subscription and live updates never fire; newlines/CR break SSE event
+// framing, and quotes/angle-brackets break the HTML attribute. Shared by
+// Service and Host — both are first-class dashboard subject rows.
+func checkDashboardSafeName(name string) error {
+	if strings.ContainsAny(name, ",\n\r\"<>") {
+		return fmt.Errorf("name %q: contains characters unsafe for dashboard wiring (one of ,\\n\\r\\\"<>)", name)
+	}
+	return nil
+}
+
+// resolve validates the Host and parses its duration strings, applying
+// defaults for omitted optional knobs. Reachability is a quick connectivity
+// check, so its timeout default is tighter than a Service's.
+func (h *HostConfig) resolve() error {
+	if h.Name == "" {
+		return errors.New("host: name is required")
+	}
+	if err := checkDashboardSafeName(h.Name); err != nil {
+		return fmt.Errorf("host: %w", err)
+	}
+	if h.Address == "" {
+		return errors.New("host: address is required")
+	}
+	var err error
+	if h.poll, err = parseDurationDefault(h.PollInterval, 30*time.Second); err != nil {
+		return fmt.Errorf("host poll_interval: %w", err)
+	}
+	if h.probeTimeout, err = parseDurationDefault(h.Timeout, 5*time.Second); err != nil {
+		return fmt.Errorf("host timeout: %w", err)
+	}
+	if h.DebounceN == 0 {
+		h.DebounceN = 3
+	}
+	if h.DebounceN < 1 {
+		return fmt.Errorf("host debounce_n must be >= 1, got %d", h.DebounceN)
 	}
 	return nil
 }
