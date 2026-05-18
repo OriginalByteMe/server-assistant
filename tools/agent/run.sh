@@ -82,6 +82,9 @@ docker cp "${STAGING}/repo/." "${CID}:/workspace"
 
 # 4. Inside the sandbox: a sandbox git identity, the work branch, the optional
 #    agent, then the make gate that writes RESULT.json + the marker.
+#    docker cp preserves host uids; the container runs as root, so git sees
+#    "dubious ownership". The tree is a disposable copy — trust it explicitly.
+docker exec "${CID}" git config --global --add safe.directory /workspace
 docker exec "${CID}" git config --global user.email "agent@sandbox.local"
 docker exec "${CID}" git config --global user.name  "Sandbox Agent"
 docker exec "${CID}" git checkout -q -b "${BRANCH}"
