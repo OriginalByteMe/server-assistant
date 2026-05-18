@@ -1,7 +1,6 @@
 package prober
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -130,14 +129,15 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (string, error) {
 		}
 		defer func() { _ = sess.Close() }()
 
-		var buf bytes.Buffer
-		sess.Stdout = &buf
-		sess.Stderr = &buf
-		if err := sess.Run(cmd); err != nil {
-			resCh <- result{out: buf.String(), err: fmt.Errorf("ssh run: %w", err)}
+		// CombinedOutput owns the stdout/stderr buffer and joins the copier
+		// goroutines before returning — no shared bytes.Buffer race, and the
+		// full output is guaranteed captured before we read it.
+		out, runErr := sess.CombinedOutput(cmd)
+		if runErr != nil {
+			resCh <- result{out: string(out), err: fmt.Errorf("ssh run: %w", runErr)}
 			return
 		}
-		resCh <- result{out: buf.String()}
+		resCh <- result{out: string(out)}
 	}()
 
 	select {
