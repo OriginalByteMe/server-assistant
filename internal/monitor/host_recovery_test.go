@@ -45,7 +45,7 @@ func TestMonitor_HostRecoveryResumesWithoutDoubleAlert(t *testing.T) {
 	webP := &fakeProber{res: core.ProbeResult{Status: core.StatusUp, Latency: time.Millisecond}}
 	hostP := &flipProber{
 		before: core.ProbeResult{Status: core.StatusDown}, // unreachable
-		after:  core.ProbeResult{Status: core.StatusUp},    // reachable again
+		after:  core.ProbeResult{Status: core.StatusUp},   // reachable again
 	}
 
 	m := New(st, rec, []Service{
