@@ -1,4 +1,7 @@
 /bin/
+# ADR 0008 sandbox verdict: written by `make agent-result`, copied out beside
+# the branch each run. A per-run artifact, never committed.
+/RESULT.json
 *.db
 *.db-shm
 *.db-wal
