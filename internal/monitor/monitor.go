@@ -73,6 +73,45 @@ type Monitor struct {
 	views map[string]core.ServiceView
 
 	hub *hub
+
+	// retain is the rolling Probe-sample retention window (ARK-9 / ADR 0002).
+	// Zero ⇒ no pruning (the bare spine; tests that don't set it are
+	// unchanged). main always sets it from config (default 24h).
+	retain time.Duration
+}
+
+// historyCap bounds how many recent samples the dashboard sparkline reads —
+// enough to show a trend without unbounded query/response growth.
+const historyCap = 120
+
+// SetRetention sets the rolling-retention window. Call before Run. Samples
+// older than d are pruned per-subject as each Probe is recorded so storage
+// cannot grow unbounded (ADR 0002).
+func (m *Monitor) SetRetention(d time.Duration) { m.retain = d }
+
+// History returns a subject's most recent Probe samples, oldest→newest,
+// capped at historyCap — the dashboard's sparkline source.
+func (m *Monitor) History(name string) []core.ProbeSample {
+	all, err := m.store.LoadProbeSamples(context.Background(), name)
+	if err != nil {
+		slog.Error("load history", "subject", name, "err", err)
+		return nil
+	}
+	if len(all) > historyCap {
+		all = all[len(all)-historyCap:]
+	}
+	return all
+}
+
+// prune enforces the retention window for one subject. Best-effort: a prune
+// failure is logged, never fatal to the probe loop (rule 10).
+func (m *Monitor) prune(ctx context.Context, subject string, now time.Time) {
+	if m.retain <= 0 {
+		return
+	}
+	if err := m.store.PruneProbeSamples(ctx, subject, now.Add(-m.retain)); err != nil {
+		slog.Error("prune probe samples", "subject", subject, "err", err)
+	}
 }
 
 // New builds a Monitor. Call Resume before Run to restore committed Status
@@ -227,6 +266,15 @@ func (m *Monitor) hostProbeOnce(ctx context.Context) {
 	}
 	now := time.Now().UTC()
 
+	// The Host is a first-class subject: record its samples too so the
+	// dashboard can render a Host sparkline (ARK-9), then enforce the window.
+	if rerr := m.store.RecordProbe(ctx, core.ProbeSample{
+		Service: h.name, Status: hostStatus, Latency: res.Latency, At: now,
+	}); rerr != nil {
+		slog.Error("record probe", "host", h.name, "err", rerr)
+	}
+	m.prune(ctx, h.name, now)
+
 	// Publish the latest reachability to the gate and detect the transition in
 	// one race-free step: Swap returns the prior value.
 	wasReachable := m.gate.Swap(reachable)
@@ -296,6 +344,7 @@ func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
 	}); rerr != nil {
 		slog.Error("record probe", "service", s.name, "err", rerr)
 	}
+	m.prune(ctx, s.name, now) // enforce the rolling window (ADR 0002)
 
 	committed, changed := s.deb.Observe(derived)
 	view := core.ServiceView{Name: s.name, Status: committed, Latency: res.Latency, LastChecked: now}
