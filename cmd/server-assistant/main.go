@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -79,14 +80,48 @@ func run() error {
 		slog.Info("notifier: telegram not configured, using stub (alerts logged only)")
 	}
 
+	// Shared SSH Runner for container-state / host-metrics probes (ARK-13).
+	// Built once; absent ⇒ no SSH probes (config.validate guarantees no
+	// container Service / ssh_metrics Host exists without this block).
+	var sshRunner prober.Runner
+	if cfg.SSH != nil {
+		var keyPEM []byte
+		if cfg.SSH.KeyFile != "" {
+			b, rerr := os.ReadFile(cfg.SSH.KeyFile)
+			if rerr != nil {
+				return fmt.Errorf("read ssh key_file: %w", rerr) // never logs the key
+			}
+			keyPEM = b
+		}
+		hostKey, insecure, herr := prober.ParseHostKey(cfg.SSH.HostKey)
+		if herr != nil {
+			return herr
+		}
+		if insecure {
+			slog.Warn("ssh host key not pinned — accepting any host key (ADR 0003 defers hardening to M2); set ssh.host_key to pin")
+		}
+		sshRunner = prober.NewSSHClient(prober.SSHConfig{
+			Address:         cfg.SSH.Address,
+			User:            cfg.SSH.User,
+			Password:        cfg.SSH.Password,
+			PrivateKey:      keyPEM,
+			Timeout:         cfg.SSH.ProbeTimeout(),
+			HostKeyCallback: hostKey,
+		})
+		slog.Info("ssh probes enabled", "host", cfg.SSH.Address, "user", cfg.SSH.User) // never the secret (rule 8)
+	}
+
 	svcs := make([]monitor.Service, 0, len(cfg.Services))
 	for _, s := range cfg.Services {
 		// Probe kind is unambiguous: config.validate() guarantees exactly one
-		// of url / tcp (ARK-8). Both feed the same prober-agnostic spine.
+		// of url / tcp / container. All feed the same prober-agnostic spine.
 		var p core.Prober
-		if s.TCPAddr != "" {
+		switch {
+		case s.Container != "":
+			p = prober.NewContainerProbe(s.Name, sshRunner, s.Container)
+		case s.TCPAddr != "":
 			p = prober.NewTCP(s.Name, s.TCPAddr, s.ProbeTimeout())
-		} else {
+		default:
 			p = prober.NewHTTP(s.Name, s.URL, s.ProbeTimeout())
 		}
 		svcs = append(svcs, monitor.Service{
@@ -103,13 +138,23 @@ func run() error {
 	// spine is wired unchanged (ADR 0006 rule 2). SetHost must precede Resume
 	// so a restart restores the gate from the persisted Host Status.
 	if cfg.Host != nil {
+		// ssh_metrics drives Host Status from array/disk/parity + CPU/RAM
+		// over SSH; otherwise bare TCP reachability (ARK-12). Either way the
+		// Prober's UP/DEGRADED/DOWN feeds the same gate (ADR 0005).
+		var hostProber core.Prober
+		if cfg.Host.SSHMetrics {
+			hostProber = prober.NewHostMetricsProbe(cfg.Host.Name, sshRunner)
+			slog.Info("host gate via ssh metrics enabled", "host", cfg.Host.Name)
+		} else {
+			hostProber = prober.NewReachability(cfg.Host.Name, cfg.Host.Address, cfg.Host.ProbeTimeout())
+			slog.Info("host reachability gate enabled", "host", cfg.Host.Name)
+		}
 		mon.SetHost(monitor.Host{
 			Name:      cfg.Host.Name,
-			Prober:    prober.NewReachability(cfg.Host.Name, cfg.Host.Address, cfg.Host.ProbeTimeout()),
+			Prober:    hostProber,
 			Poll:      cfg.Host.Poll(),
 			DebounceN: cfg.Host.DebounceN,
 		})
-		slog.Info("host reachability gate enabled", "host", cfg.Host.Name)
 	}
 	if err := mon.Resume(ctx); err != nil {
 		return err

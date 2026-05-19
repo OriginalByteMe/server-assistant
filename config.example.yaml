@@ -19,9 +19,10 @@ database:
 #   poll_interval 30s · timeout 10s · latency_threshold 1s · debounce_n 3
 # A reachable Service slower than latency_threshold is DEGRADED, not DOWN.
 # A Status change commits (and Alerts) only after debounce_n agreeing Probes.
-# Each Service is HTTP or TCP — set exactly one of `url` or `tcp` (host:port),
-# never both, never neither. A `tcp` Service (game server, database, …) feeds
-# the same Status/debounce/dashboard/Alert pipeline as an HTTP one.
+# Each Service sets exactly one probe kind — `url` (HTTP), `tcp` (host:port),
+# or `container` (SSH container-state; needs the ssh block below) — never
+# several, never none. All feed the same Status/debounce/dashboard/Alert
+# pipeline.
 services:
   - name: example
     url: "https://example.test"
@@ -35,6 +36,25 @@ services:
   # A non-HTTP Service is probed by opening a TCP connection to host:port:
   # - name: minecraft
   #   tcp: "${MINECRAFT_ADDR}"   # e.g. 192.168.1.20:25565
+  # A Service can also be probed by its container state over SSH (ARK-13):
+  # - name: plex
+  #   container: plexmediaserver
+
+# Shared SSH connection to the Host for container-state and host-metrics
+# probes (ARK-13). Optional: omit unless a Service uses `container` or the
+# host uses `ssh_metrics`. The credential is a scoped, NON-ROOT, READ-ONLY
+# Unraid user (ADR 0003 hygiene). password is a secret — supply via ${VAR},
+# never commit it; prefer key_file (a path to a private key). Set exactly one
+# of password / key_file. timeout defaults to 10s. host_key is an optional
+# authorized-key line to pin the Host; omitted ⇒ v1 accepts any host key
+# (ADR 0003 defers hardening) and the daemon warns once.
+# ssh:
+#   address: "${UNRAID_ADDR}"   # e.g. 192.168.1.10:22
+#   user: "monitor"
+#   password: "${UNRAID_SSH_PASSWORD}"
+#   # key_file: "/etc/server-assistant/id_ed25519"
+#   timeout: "10s"
+#   # host_key: "ssh-ed25519 AAAA..."
 
 # The single Unraid Host, monitored for reachability (ADR 0005). Optional:
 # omit the whole block to run the bare spine with no gate. When set, if the
@@ -43,12 +63,16 @@ services:
 # one per Service, and recovery does not double-alert. address is a host:port
 # TCP target (any open Host port); it may embed a secret via ${VAR}. Optional
 # knobs default if omitted:  poll_interval 30s · timeout 5s · debounce_n 3
+# Set ssh_metrics: true to drive Host Status from the SSH host-metrics probe
+# (array/disk/parity + CPU/RAM) instead of bare TCP reachability — requires
+# the ssh block (ARK-13).
 # host:
 #   name: unraid
 #   address: "${UNRAID_ADDR}"   # e.g. 192.168.1.10:22
 #   poll_interval: "30s"
 #   timeout: "5s"
 #   debounce_n: 3
+#   # ssh_metrics: true
 
 # One-way Alert channel over Telegram (issue 0003). Optional: omit the whole
 # block to keep Alerts log-only. Both fields are secrets — supply them via the

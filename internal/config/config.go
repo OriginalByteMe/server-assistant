@@ -31,7 +31,28 @@ type Config struct {
 	// pointer so "absent" (nil) is distinct from "present and empty": absent
 	// means no ADR 0005 gate and the bare spine is wired unchanged.
 	Host *HostConfig `yaml:"host"`
+	// SSH is the optional shared connection to the Host for container-state
+	// and host-metrics probes (ARK-13). Absent ⇒ no SSH probes wired.
+	SSH *SSHConfig `yaml:"ssh"`
 }
+
+// SSHConfig is the shared, scoped, non-root, read-only Unraid SSH credential
+// (CONVENTIONS rule 7 / ADR 0003 hygiene). password is a secret resolved from
+// the environment via ${VAR}; key_file is a path to a private key read at
+// wiring time. Neither is ever logged (rule 8). One Host ⇒ one SSH block.
+type SSHConfig struct {
+	Address  string `yaml:"address"` // host:port
+	User     string `yaml:"user"`
+	Password string `yaml:"password"` // secret: ${VAR}, never committed
+	KeyFile  string `yaml:"key_file"` // path to a private key (preferred)
+	HostKey  string `yaml:"host_key"` // optional known authorized-key line; empty ⇒ v1 accept-any (ADR 0003)
+	Timeout  string `yaml:"timeout"`
+
+	probeTimeout time.Duration // resolved by validate()
+}
+
+// ProbeTimeout is the per-SSH-call deadline enforced via context (rule 4).
+func (s SSHConfig) ProbeTimeout() time.Duration { return s.probeTimeout }
 
 // HostConfig defines the single Host and its reachability Probe (ADR 0005).
 // When set, an unreachable Host turns its Services UNKNOWN (never DOWN) and
@@ -43,6 +64,10 @@ type HostConfig struct {
 	PollInterval string `yaml:"poll_interval"`
 	Timeout      string `yaml:"timeout"`
 	DebounceN    int    `yaml:"debounce_n"`
+	// SSHMetrics drives Host Status from the SSH host-metrics probe
+	// (array/disk/parity + CPU/RAM) instead of bare TCP reachability
+	// (ARK-13). Requires the shared ssh block.
+	SSHMetrics bool `yaml:"ssh_metrics"`
 
 	poll, probeTimeout time.Duration // resolved by validate()
 }
@@ -78,8 +103,9 @@ func (t TelegramConfig) Configured() bool {
 // library magic (rule 3). Consumers read the resolved typed accessors.
 type ServiceConfig struct {
 	Name             string `yaml:"name"`
-	URL              string `yaml:"url"` // HTTP(S) Service: exactly one of url / tcp
-	TCPAddr          string `yaml:"tcp"` // non-HTTP Service: host:port TCP probe
+	URL              string `yaml:"url"`       // HTTP(S) Service: exactly one of url / tcp / container
+	TCPAddr          string `yaml:"tcp"`       // non-HTTP Service: host:port TCP probe
+	Container        string `yaml:"container"` // SSH container-state probe (needs the ssh block)
 	PollInterval     string `yaml:"poll_interval"`
 	Timeout          string `yaml:"timeout"`
 	LatencyThreshold string `yaml:"latency_threshold"`
@@ -146,15 +172,25 @@ func (c *Config) resolveSecrets() error {
 	c.HTTPAddr = r.expand(c.HTTPAddr)
 	c.Database.Path = r.expand(c.Database.Path)
 	for i := range c.Services {
-		// A Service URL or TCP target may embed a secret host/token via ${VAR}.
+		// A Service URL / TCP target / container name may embed a secret or
+		// host-specific value via ${VAR} (rule 7) — expand every probe-kind
+		// field so an unset reference is caught at load.
 		c.Services[i].URL = r.expand(c.Services[i].URL)
 		c.Services[i].TCPAddr = r.expand(c.Services[i].TCPAddr)
+		c.Services[i].Container = r.expand(c.Services[i].Container)
 	}
 	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
 	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
 	if c.Host != nil {
 		// The reachability target may embed a secret host via ${VAR}.
 		c.Host.Address = r.expand(c.Host.Address)
+	}
+	if c.SSH != nil {
+		// password is a secret; address/user/key_file may embed ${VAR} too.
+		c.SSH.Address = r.expand(c.SSH.Address)
+		c.SSH.User = r.expand(c.SSH.User)
+		c.SSH.Password = r.expand(c.SSH.Password)
+		c.SSH.KeyFile = r.expand(c.SSH.KeyFile)
 	}
 	return r.err()
 }
@@ -201,10 +237,20 @@ func (c *Config) validate() error {
 	if c.Database.Path == "" {
 		c.Database.Path = "server-assistant.db"
 	}
+	if c.SSH != nil {
+		if err := c.SSH.resolve(); err != nil {
+			return err
+		}
+	}
 	seen := map[string]struct{}{}
 	for i := range c.Services {
 		if err := c.Services[i].resolve(); err != nil {
 			return fmt.Errorf("service %q: %w", c.Services[i].Name, err)
+		}
+		// A container Service with no ssh block can never be probed — it
+		// would be permanently UNKNOWN. Reject at load (rule 6).
+		if c.Services[i].Container != "" && c.SSH == nil {
+			return fmt.Errorf("service %q: container probe requires an ssh block", c.Services[i].Name)
 		}
 		if _, dup := seen[c.Services[i].Name]; dup {
 			return fmt.Errorf("duplicate service name %q", c.Services[i].Name)
@@ -220,6 +266,9 @@ func (c *Config) validate() error {
 		// silently shadow the other.
 		if _, dup := seen[c.Host.Name]; dup {
 			return fmt.Errorf("host name %q collides with a service of the same name", c.Host.Name)
+		}
+		if c.Host.SSHMetrics && c.SSH == nil {
+			return errors.New("host ssh_metrics requires an ssh block")
 		}
 	}
 	// A half-filled telegram block is a misconfiguration, not a silent
@@ -246,11 +295,18 @@ func (s *ServiceConfig) resolve() error {
 	if err := checkDashboardSafeName(s.Name); err != nil {
 		return err
 	}
-	// A Service is either HTTP (url) or TCP (tcp), never both, never neither:
-	// the probe kind must be unambiguous (rule 6 — config is the source of
-	// truth). main wires prober.NewHTTP or prober.NewTCP from this.
-	if (s.URL == "") == (s.TCPAddr == "") {
-		return errors.New("exactly one of url or tcp is required")
+	// A Service is exactly one probe kind — HTTP (url), TCP (tcp), or
+	// container-state over SSH (container) — never several, never none: the
+	// probe kind must be unambiguous (rule 6). main wires prober.NewHTTP /
+	// NewTCP / NewContainerProbe from this.
+	kinds := 0
+	for _, set := range []bool{s.URL != "", s.TCPAddr != "", s.Container != ""} {
+		if set {
+			kinds++
+		}
+	}
+	if kinds != 1 {
+		return errors.New("exactly one of url, tcp or container is required")
 	}
 	var err error
 	if s.poll, err = parseDurationDefault(s.PollInterval, 30*time.Second); err != nil {
@@ -267,6 +323,27 @@ func (s *ServiceConfig) resolve() error {
 	}
 	if s.DebounceN < 1 {
 		return fmt.Errorf("debounce_n must be >= 1, got %d", s.DebounceN)
+	}
+	return nil
+}
+
+// resolve validates the shared SSH block and parses its timeout, defaulting
+// to a tight per-call deadline (rule 4). A credential is mandatory: a probe
+// user with neither key nor password can never connect (rule 6). The secret
+// itself is never echoed back in any error (rule 8).
+func (s *SSHConfig) resolve() error {
+	if s.Address == "" {
+		return errors.New("ssh: address is required")
+	}
+	if s.User == "" {
+		return errors.New("ssh: user is required")
+	}
+	if s.Password == "" && s.KeyFile == "" {
+		return errors.New("ssh: password or key_file is required")
+	}
+	var err error
+	if s.probeTimeout, err = parseDurationDefault(s.Timeout, 10*time.Second); err != nil {
+		return fmt.Errorf("ssh timeout: %w", err)
 	}
 	return nil
 }
