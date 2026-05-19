@@ -134,6 +134,9 @@ func run() error {
 	}
 
 	mon := monitor.New(st, notify, svcs)
+	// Rolling Probe-sample retention (ARK-9 / ADR 0002): bound history so
+	// storage cannot grow unbounded. Always set (config defaults to 24h).
+	mon.SetRetention(cfg.History.Window())
 	// Optional Host reachability gate (ADR 0005). Absent => no gate, the bare
 	// spine is wired unchanged (ADR 0006 rule 2). SetHost must precede Resume
 	// so a restart restores the gate from the persisted Host Status.
