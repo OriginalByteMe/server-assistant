@@ -85,6 +85,19 @@ func (s *Store) LoadProbeSamples(ctx context.Context, service string) ([]core.Pr
 	return out, nil
 }
 
+// PruneProbeSamples deletes a subject's Probe samples older than before,
+// enforcing the rolling-retention window so history cannot grow unbounded
+// (ADR 0002). Scoped per-subject; uses the (service, observed_at) index.
+func (s *Store) PruneProbeSamples(ctx context.Context, service string, before time.Time) error {
+	if err := s.q.PruneProbeSamples(ctx, db.PruneProbeSamplesParams{
+		Service:    service,
+		ObservedAt: before.UnixMilli(),
+	}); err != nil {
+		return fmt.Errorf("prune probe samples for %s: %w", service, err)
+	}
+	return nil
+}
+
 // SaveCommittedStatus upserts a Service's latest committed Status.
 func (s *Store) SaveCommittedStatus(ctx context.Context, cs core.CommittedStatus) error {
 	if err := s.q.UpsertCommittedStatus(ctx, db.UpsertCommittedStatusParams{

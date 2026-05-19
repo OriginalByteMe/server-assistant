@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // The seams (CONVENTIONS rule 2). v1 ships lean implementations; richer
 // backends (push agent, TSDB, M2 action harness) attach behind these
@@ -21,6 +24,9 @@ type Store interface {
 	Migrate(ctx context.Context) error
 	RecordProbe(ctx context.Context, p ProbeSample) error
 	LoadProbeSamples(ctx context.Context, service string) ([]ProbeSample, error)
+	// PruneProbeSamples drops a subject's samples older than before — the
+	// rolling-retention window so history cannot grow unbounded (ADR 0002).
+	PruneProbeSamples(ctx context.Context, service string, before time.Time) error
 	SaveCommittedStatus(ctx context.Context, cs CommittedStatus) error
 	LoadCommittedStatuses(ctx context.Context) ([]CommittedStatus, error)
 	Close() error
