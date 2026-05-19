@@ -40,6 +40,28 @@ func TestLoad_SSHRejectsNoCredential(t *testing.T) {
 	require.Contains(t, err.Error(), "ssh: password or key_file is required")
 }
 
+// Codex P2: the container field is operator-supplied and must be ${VAR}-
+// expanded like url/tcp (rule 7) — otherwise a `container: "${PLEX}"` stays
+// literal and a missing env var is never detected at load (the probe would
+// silently docker-inspect an unresolved token forever).
+func TestLoad_ContainerExpandsEnvSecret(t *testing.T) {
+	t.Setenv("SA_PW", "x")
+	t.Setenv("SA_PLEX_CONTAINER", "plexmediaserver")
+	p := writeTemp(t, "schema_version: 1\nssh:\n  address: \"h:22\"\n  user: u\n  password: \"${SA_PW}\"\nservices:\n  - name: plex\n    container: \"${SA_PLEX_CONTAINER}\"\n")
+	c, err := NewFileSource(p).Load(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "plexmediaserver", c.Services[0].Container)
+}
+
+func TestLoad_ContainerRejectsUnsetEnvReference(t *testing.T) {
+	t.Setenv("SA_PW", "x")
+	p := writeTemp(t, "schema_version: 1\nssh:\n  address: \"h:22\"\n  user: u\n  password: \"${SA_PW}\"\nservices:\n  - name: plex\n    container: \"${SA_PLEX_DEFINITELY_UNSET}\"\n")
+	_, err := NewFileSource(p).Load(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unset environment variables")
+	require.Contains(t, err.Error(), "SA_PLEX_DEFINITELY_UNSET")
+}
+
 // A Service can be probed via its container state instead of url/tcp:
 // exactly one of url / tcp / container (rule 6 — unambiguous probe kind).
 func TestLoad_ContainerServiceParsed(t *testing.T) {
