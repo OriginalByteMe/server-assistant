@@ -34,7 +34,23 @@ type Config struct {
 	// SSH is the optional shared connection to the Host for container-state
 	// and host-metrics probes (ARK-13). Absent ⇒ no SSH probes wired.
 	SSH *SSHConfig `yaml:"ssh"`
+	// History is the rolling Probe-sample retention window (ARK-9). Not a
+	// pointer: always present with a default so storage is bounded even
+	// unconfigured (ADR 0002).
+	History HistoryConfig `yaml:"history"`
 }
+
+// HistoryConfig bounds Probe-sample retention. Samples older than Window are
+// pruned (ADR 0002). SQLite holds runtime/history only (rule 6); a TSDB
+// attaches later behind the same Store seam.
+type HistoryConfig struct {
+	WindowStr string `yaml:"window"`
+
+	window time.Duration // resolved by validate()
+}
+
+// Window is the rolling-retention duration; defaults to 24h.
+func (h HistoryConfig) Window() time.Duration { return h.window }
 
 // SSHConfig is the shared, scoped, non-root, read-only Unraid SSH credential
 // (CONVENTIONS rule 7 / ADR 0003 hygiene). password is a secret resolved from
@@ -275,6 +291,10 @@ func (c *Config) validate() error {
 	// half-on notifier: require both or neither (rule 6).
 	if (c.Telegram.BotToken == "") != (c.Telegram.ChatID == "") {
 		return errors.New("telegram: bot_token and chat_id must both be set or both omitted")
+	}
+	var herr error
+	if c.History.window, herr = parseDurationDefault(c.History.WindowStr, 24*time.Hour); herr != nil {
+		return fmt.Errorf("history window: %w", herr)
 	}
 	return nil
 }
