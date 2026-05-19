@@ -74,6 +74,13 @@ services:
 #   debounce_n: 3
 #   # ssh_metrics: true
 
+# Rolling Probe-sample retention (ARK-9 / ADR 0002). Samples older than the
+# window are pruned per subject as each Probe is recorded, so SQLite history
+# cannot grow unbounded. The dashboard renders a latency/Status trend
+# sparkline per Service and Host from this window. Optional: defaults to 24h.
+# history:
+#   window: "24h"
+
 # One-way Alert channel over Telegram (issue 0003). Optional: omit the whole
 # block to keep Alerts log-only. Both fields are secrets — supply them via the
 # environment (never commit them), and set both or neither. chat_id is a
