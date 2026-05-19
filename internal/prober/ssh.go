@@ -58,7 +58,13 @@ func (p *ContainerProbe) Probe(ctx context.Context) (core.ProbeResult, error) {
 		return core.ProbeResult{}, fmt.Errorf("container probe %s: %w", p.name, err)
 	}
 
-	state, health, _ := strings.Cut(strings.TrimSpace(out), "|")
+	// The remote format is always "status|health" (health may be empty). A
+	// missing separator means truncated/garbled output — "can't tell", not a
+	// derived Status (rule 5 / ADR 0005): error so the monitor skips it.
+	state, health, ok := strings.Cut(strings.TrimSpace(out), "|")
+	if !ok {
+		return core.ProbeResult{}, fmt.Errorf("container probe %s: malformed output (no status|health separator): %q", p.name, out)
+	}
 	switch state {
 	case "running":
 		// A failing/initialising healthcheck is "reachable but not doing its
@@ -139,7 +145,18 @@ func (p *HostMetricsProbe) Probe(ctx context.Context) (core.ProbeResult, error) 
 		}, nil
 	}
 
-	if atoiDefault(kv["mdNumDisabled"], 0) > 0 || atoiDefault(kv["mdNumInvalid"], 0) > 0 {
+	// Disk/parity counters ARE the redundancy-health signal. A missing or
+	// non-integer value is not "0 disabled disks" — it is unknown disk
+	// health, which is "can't tell", never a clean UP (rule 5 / ADR 0005).
+	disabled, err := requireInt(kv, "mdNumDisabled")
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
+	invalid, err := requireInt(kv, "mdNumInvalid")
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
+	if disabled > 0 || invalid > 0 {
 		return core.ProbeResult{Status: core.StatusDegraded}, nil
 	}
 
@@ -160,11 +177,19 @@ func (p *HostMetricsProbe) Probe(ctx context.Context) (core.ProbeResult, error) 
 	return core.ProbeResult{Status: core.StatusUp}, nil
 }
 
-func atoiDefault(s string, def int) int {
-	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
-		return n
+// requireInt parses a mandatory integer metric. Absent or non-integer is a
+// hard error: for a derivation input, "unknown" must surface as "can't tell"
+// (rule 5 / ADR 0005), never silently default to a healthy zero.
+func requireInt(kv map[string]string, key string) (int, error) {
+	v, ok := kv[key]
+	if !ok {
+		return 0, fmt.Errorf("report missing %s", key)
 	}
-	return def
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return 0, fmt.Errorf("report %s=%q is not an integer", key, v)
+	}
+	return n, nil
 }
 
 func atofDefault(s string, def float64) float64 {

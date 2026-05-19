@@ -61,9 +61,9 @@ func TestHostMetricsProbe_ResourcePressureIsDegraded(t *testing.T) {
 // "can't tell" — surface an error so the monitor skips it, never UP.
 func TestHostMetricsProbe_MissingOrInvalidDiskCountersIsNotUp(t *testing.T) {
 	cases := []string{
-		"mdState=STARTED\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",                       // mdNumDisabled missing
-		"mdState=STARTED\nmdNumDisabled=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",                       // mdNumInvalid missing
-		"mdState=STARTED\nmdNumDisabled=oops\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",    // mdNumDisabled corrupt
+		"mdState=STARTED\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",                     // mdNumDisabled missing
+		"mdState=STARTED\nmdNumDisabled=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",                    // mdNumInvalid missing
+		"mdState=STARTED\nmdNumDisabled=oops\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n", // mdNumDisabled corrupt
 	}
 	for _, out := range cases {
 		res, err := NewHostMetricsProbe("unraid", &fakeRunner{out: out}).Probe(context.Background())
