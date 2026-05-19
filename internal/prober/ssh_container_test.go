@@ -56,6 +56,19 @@ func TestContainerProbe_NotRunningIsDown(t *testing.T) {
 	}
 }
 
+// Codex P2 (rule 5 / ADR 0005): malformed/truncated output without the
+// expected "status|health" separator is "can't tell", not a derived status.
+// It must error so the monitor skips it — never silently commit UP.
+func TestContainerProbe_MalformedOutputIsNotUp(t *testing.T) {
+	for _, bad := range []string{"running\n", "\n", "garbage"} {
+		r := &fakeRunner{out: bad}
+		p := NewContainerProbe("plex", r, "plex")
+		res, err := p.Probe(context.Background())
+		require.Error(t, err, "output %q must error", bad)
+		require.NotEqual(t, core.StatusUp, res.Status, "malformed output must never derive UP (rule 5)")
+	}
+}
+
 // An SSH/command failure is NOT a measurement of the container — surfacing
 // DOWN would let an SSH blip commit a false outage. The observer never
 // collapses "can't tell" into "down" (rule 5 / ADR 0005): return an error so

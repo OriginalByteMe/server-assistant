@@ -54,6 +54,24 @@ func TestHostMetricsProbe_ResourcePressureIsDegraded(t *testing.T) {
 	require.Equal(t, core.StatusDegraded, res.Status)
 }
 
+// Codex P2 (rule 5 / ADR 0005): the disk/parity counters are part of the
+// derivation. If the report has mdState=STARTED but omits or corrupts
+// mdNumDisabled / mdNumInvalid (truncated output, changed mdcmd format),
+// defaulting them to 0 would report a false clean UP. Unknown disk health is
+// "can't tell" — surface an error so the monitor skips it, never UP.
+func TestHostMetricsProbe_MissingOrInvalidDiskCountersIsNotUp(t *testing.T) {
+	cases := []string{
+		"mdState=STARTED\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",                       // mdNumDisabled missing
+		"mdState=STARTED\nmdNumDisabled=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",                       // mdNumInvalid missing
+		"mdState=STARTED\nmdNumDisabled=oops\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",    // mdNumDisabled corrupt
+	}
+	for _, out := range cases {
+		res, err := NewHostMetricsProbe("unraid", &fakeRunner{out: out}).Probe(context.Background())
+		require.Error(t, err, "report %q must error", out)
+		require.NotEqual(t, core.StatusUp, res.Status, "unknown disk health must never derive UP (rule 5)")
+	}
+}
+
 // An SSH failure or a report missing the critical array field is "can't
 // tell", never DOWN (rule 5 / ADR 0005): surface an error so the monitor
 // skips it (and ARK-12's gate, not this probe, owns the UNKNOWN).
