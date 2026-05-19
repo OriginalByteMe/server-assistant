@@ -172,9 +172,12 @@ func (c *Config) resolveSecrets() error {
 	c.HTTPAddr = r.expand(c.HTTPAddr)
 	c.Database.Path = r.expand(c.Database.Path)
 	for i := range c.Services {
-		// A Service URL or TCP target may embed a secret host/token via ${VAR}.
+		// A Service URL / TCP target / container name may embed a secret or
+		// host-specific value via ${VAR} (rule 7) — expand every probe-kind
+		// field so an unset reference is caught at load.
 		c.Services[i].URL = r.expand(c.Services[i].URL)
 		c.Services[i].TCPAddr = r.expand(c.Services[i].TCPAddr)
+		c.Services[i].Container = r.expand(c.Services[i].Container)
 	}
 	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
 	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
