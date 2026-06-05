@@ -28,7 +28,27 @@ import (
 // telegramTimeout caps a single Alert delivery (CONVENTIONS rule 4). It is a
 // fixed daemon constant, not config: a one-way Alert that cannot send within
 // this budget is dropped (logged by the monitor) rather than stalling a poll.
-const telegramTimeout = 10 * time.Second
+const (
+	telegramTimeout      = 10 * time.Second
+	configReloadInterval = 2 * time.Second
+)
+
+func reloadKnobs(src config.Source, ctx context.Context) ([]monitor.Service, error) {
+	cfg, err := src.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	svcs := make([]monitor.Service, 0, len(cfg.Services))
+	for _, s := range cfg.Services {
+		svcs = append(svcs, monitor.Service{
+			Name:      s.Name,
+			Threshold: s.Threshold(),
+			Poll:      s.Poll(),
+			DebounceN: s.DebounceN,
+		})
+	}
+	return svcs, nil
+}
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -169,8 +189,15 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	var lastConfigMod time.Time
+	if info, statErr := os.Stat(*cfgPath); statErr != nil {
+		slog.Error("stat config for reload watcher", "err", statErr)
+	} else {
+		lastConfigMod = info.ModTime()
+	}
+
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		mon.Run(ctx)
@@ -180,6 +207,36 @@ func run() error {
 		if serr := srv.ListenAndServe(); serr != nil && !errors.Is(serr, http.ErrServerClosed) {
 			slog.Error("http server", "err", serr)
 			stop() // a dead dashboard should bring the daemon down cleanly
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(configReloadInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				info, statErr := os.Stat(*cfgPath)
+				if statErr != nil {
+					slog.Error("stat config for reload watcher", "err", statErr)
+					continue
+				}
+				mod := info.ModTime()
+				if mod.Equal(lastConfigMod) {
+					continue
+				}
+				knobs, loadErr := reloadKnobs(config.NewFileSource(*cfgPath), ctx)
+				if loadErr != nil {
+					lastConfigMod = mod
+					slog.Error("config reload rejected, keeping previous config", "err", loadErr)
+					continue
+				}
+				mon.Reconfigure(knobs)
+				lastConfigMod = mod
+				slog.Info("config reloaded", "services", len(knobs))
+			}
 		}
 	}()
 

@@ -139,6 +139,30 @@ func New(store core.Store, notifier core.Notifier, svcs []Service) *Monitor {
 	return m
 }
 
+// Reconfigure applies live per-Service knob changes without changing the
+// running Service set. Added/removed Services are a v1 restart boundary.
+func (m *Monitor) Reconfigure(svcs []Service) {
+	incoming := make(map[string]Service, len(svcs))
+	for _, s := range svcs {
+		incoming[s.Name] = s
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, rt := range m.svcs {
+		next, ok := incoming[rt.name]
+		if !ok {
+			continue
+		}
+		rt.threshold = next.Threshold
+		rt.poll = next.Poll
+		if rt.debounceN != next.DebounceN {
+			rt.deb = core.NewDebouncerWithStatus(next.DebounceN, m.views[rt.name].Status)
+			rt.debounceN = next.DebounceN
+		}
+	}
+}
+
 // SetHost installs the Host reachability gate. Call before Resume/Run. With no
 // Host set the Monitor is the bare v1 spine (ADR 0006 rule 2); with one set,
 // an unreachable Host turns its Services UNKNOWN and fires exactly one "Host
@@ -227,7 +251,8 @@ func (m *Monitor) Run(ctx context.Context) {
 		wg.Add(1)
 		go func(s *serviceRuntime) {
 			defer wg.Done()
-			t := time.NewTicker(s.poll)
+			currentPoll := m.svcPoll(s)
+			t := time.NewTicker(currentPoll)
 			defer t.Stop()
 			m.probeOnce(ctx, s) // probe immediately, don't wait a full interval
 			for {
@@ -236,6 +261,10 @@ func (m *Monitor) Run(ctx context.Context) {
 					return
 				case <-t.C:
 					m.probeOnce(ctx, s)
+					if poll := m.svcPoll(s); poll != currentPoll {
+						t.Reset(poll)
+						currentPoll = poll
+					}
 				}
 			}
 		}(s)
@@ -336,7 +365,7 @@ func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
 		slog.Error("probe error", "service", s.name, "err", err)
 		return
 	}
-	derived := core.DeriveStatus(res, s.threshold)
+	derived := core.DeriveStatus(res, m.svcThreshold(s))
 	now := time.Now().UTC()
 
 	if rerr := m.store.RecordProbe(ctx, core.ProbeSample{
@@ -346,7 +375,7 @@ func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
 	}
 	m.prune(ctx, s.name, now) // enforce the rolling window (ADR 0002)
 
-	committed, changed := s.deb.Observe(derived)
+	committed, changed := m.observeService(s, derived)
 	view := core.ServiceView{Name: s.name, Status: committed, Latency: res.Latency, LastChecked: now}
 	m.setView(view)
 
@@ -368,6 +397,27 @@ func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
 	// Push every probe so the dashboard's latency / last-checked stay live;
 	// Alerts (above) remain strictly debounced.
 	m.hub.broadcast(view)
+}
+
+func (m *Monitor) svcThreshold(s *serviceRuntime) time.Duration {
+	m.mu.RLock()
+	threshold := s.threshold
+	m.mu.RUnlock()
+	return threshold
+}
+
+func (m *Monitor) svcPoll(s *serviceRuntime) time.Duration {
+	m.mu.RLock()
+	poll := s.poll
+	m.mu.RUnlock()
+	return poll
+}
+
+func (m *Monitor) observeService(s *serviceRuntime, status core.Status) (core.Status, bool) {
+	m.mu.Lock()
+	committed, changed := s.deb.Observe(status)
+	m.mu.Unlock()
+	return committed, changed
 }
 
 func (m *Monitor) setView(v core.ServiceView) {
