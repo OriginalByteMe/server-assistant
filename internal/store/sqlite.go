@@ -67,14 +67,15 @@ func (s *Store) RecordProbe(ctx context.Context, p core.ProbeSample) error {
 	return nil
 }
 
-// LoadProbeSamples returns a Service's recorded Probe samples, oldest first.
-func (s *Store) LoadProbeSamples(ctx context.Context, service string) ([]core.ProbeSample, error) {
-	rows, err := s.q.ListProbeSamples(ctx, service)
+// LoadProbeSamples returns up to limit most-recent samples, oldest first.
+func (s *Store) LoadProbeSamples(ctx context.Context, service string, limit int) ([]core.ProbeSample, error) {
+	rows, err := s.q.ListProbeSamples(ctx, db.ListProbeSamplesParams{Service: service, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("load probe samples for %s: %w", service, err)
 	}
 	out := make([]core.ProbeSample, 0, len(rows))
-	for _, r := range rows {
+	for i := len(rows) - 1; i >= 0; i-- {
+		r := rows[i]
 		out = append(out, core.ProbeSample{
 			Service: r.Service,
 			Status:  core.Status(r.Status),

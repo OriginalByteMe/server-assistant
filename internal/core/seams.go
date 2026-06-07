@@ -23,7 +23,7 @@ type Prober interface {
 type Store interface {
 	Migrate(ctx context.Context) error
 	RecordProbe(ctx context.Context, p ProbeSample) error
-	LoadProbeSamples(ctx context.Context, service string) ([]ProbeSample, error)
+	LoadProbeSamples(ctx context.Context, service string, limit int) ([]ProbeSample, error)
 	// PruneProbeSamples drops a subject's samples older than before — the
 	// rolling-retention window so history cannot grow unbounded (ADR 0002).
 	PruneProbeSamples(ctx context.Context, service string, before time.Time) error

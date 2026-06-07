@@ -33,7 +33,7 @@ func TestMonitor_PrunesOldSamplesAndExposesHistory(t *testing.T) {
 
 	m.probeOnce(ctx, m.svcs[0]) // records a fresh sample, then prunes < now-1h
 
-	samples, err := st.LoadProbeSamples(ctx, "web")
+	samples, err := st.LoadProbeSamples(ctx, "web", 1000)
 	require.NoError(t, err)
 	require.Len(t, samples, 1, "the >3h-old sample is pruned; only the fresh one remains")
 	require.True(t, samples[0].At.After(old))

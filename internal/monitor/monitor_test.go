@@ -58,7 +58,7 @@ func TestMonitor_RunProbesThenStopsOnCancel(t *testing.T) {
 	require.Greater(t, fp.calls.Load(), int64(1), "expected multiple probes")
 
 	// Probes were persisted; after DebounceN agreeing UP, Status committed UP.
-	samples, err := st.LoadProbeSamples(ctx, "web")
+	samples, err := st.LoadProbeSamples(ctx, "web", 1000)
 	require.NoError(t, err)
 	require.NotEmpty(t, samples)
 

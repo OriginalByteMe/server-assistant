@@ -38,13 +38,13 @@ func TestStore_PruneProbeSamplesDropsOldKeepsRecent(t *testing.T) {
 	require.NoError(t, s2.Migrate(ctx))
 	defer func() { require.NoError(t, s2.Close()) }()
 
-	web, err := s2.LoadProbeSamples(ctx, "web")
+	web, err := s2.LoadProbeSamples(ctx, "web", 1000)
 	require.NoError(t, err)
 	require.Len(t, web, 1, "only the within-window sample survives, across a reopen")
 	require.True(t, now.Add(-10*time.Minute).Equal(web[0].At))
 
 	// Pruning is scoped to the subject — other subjects are untouched.
-	api, err := s2.LoadProbeSamples(ctx, "api")
+	api, err := s2.LoadProbeSamples(ctx, "api", 1000)
 	require.NoError(t, err)
 	require.Len(t, api, 1, "pruning web must not touch api history")
 }

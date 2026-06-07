@@ -64,7 +64,7 @@ func TestStore_ProbeSamplesSurviveReopen(t *testing.T) {
 	require.NoError(t, s2.Migrate(ctx))
 	defer func() { require.NoError(t, s2.Close()) }()
 
-	got, err := s2.LoadProbeSamples(ctx, "web")
+	got, err := s2.LoadProbeSamples(ctx, "web", 1000)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 

@@ -92,13 +92,10 @@ func (m *Monitor) SetRetention(d time.Duration) { m.retain = d }
 // History returns a subject's most recent Probe samples, oldest→newest,
 // capped at historyCap — the dashboard's sparkline source.
 func (m *Monitor) History(name string) []core.ProbeSample {
-	all, err := m.store.LoadProbeSamples(context.Background(), name)
+	all, err := m.store.LoadProbeSamples(context.Background(), name, historyCap)
 	if err != nil {
 		slog.Error("load history", "subject", name, "err", err)
 		return nil
-	}
-	if len(all) > historyCap {
-		all = all[len(all)-historyCap:]
 	}
 	return all
 }
