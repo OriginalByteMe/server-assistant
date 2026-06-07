@@ -45,6 +45,7 @@ type serviceRuntime struct {
 	poll      time.Duration
 	debounceN int
 	deb       *core.Debouncer
+	reconfig  chan struct{}
 }
 
 type hostRuntime struct {
@@ -131,6 +132,7 @@ func New(store core.Store, notifier core.Notifier, svcs []Service) *Monitor {
 			poll:      s.Poll,
 			debounceN: s.DebounceN,
 			deb:       core.NewDebouncer(s.DebounceN),
+			reconfig:  make(chan struct{}, 1),
 		})
 		m.views[s.Name] = core.ServiceView{Name: s.Name, Status: core.StatusUnknown}
 	}
@@ -154,11 +156,18 @@ func (m *Monitor) Reconfigure(svcs []Service) {
 		if !ok {
 			continue
 		}
+		pollChanged := rt.poll != next.Poll
 		rt.threshold = next.Threshold
 		rt.poll = next.Poll
 		if rt.debounceN != next.DebounceN {
-			rt.deb = core.NewDebouncerWithStatus(next.DebounceN, m.views[rt.name].Status)
+			rt.deb = core.NewDebouncerWithStatus(next.DebounceN, rt.deb.Committed())
 			rt.debounceN = next.DebounceN
+		}
+		if pollChanged {
+			select {
+			case rt.reconfig <- struct{}{}:
+			default:
+			}
 		}
 	}
 }
@@ -259,6 +268,11 @@ func (m *Monitor) Run(ctx context.Context) {
 				select {
 				case <-ctx.Done():
 					return
+				case <-s.reconfig:
+					if poll := m.svcPoll(s); poll != currentPoll {
+						t.Reset(poll)
+						currentPoll = poll
+					}
 				case <-t.C:
 					m.probeOnce(ctx, s)
 					if poll := m.svcPoll(s); poll != currentPoll {

@@ -31,6 +31,9 @@ func NewDebouncerWithStatus(n int, committed Status) *Debouncer {
 	return &Debouncer{n: n, committed: committed}
 }
 
+// Committed returns the currently committed Status.
+func (d *Debouncer) Committed() Status { return d.committed }
+
 // Observe records one derived Status. It returns the currently committed
 // Status and whether this Probe caused a commit (a committed change).
 func (d *Debouncer) Observe(s Status) (committed Status, changed bool) {
