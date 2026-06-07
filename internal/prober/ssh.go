@@ -2,6 +2,7 @@ package prober
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -93,9 +94,9 @@ func (p *ContainerProbe) Probe(ctx context.Context) (core.ProbeResult, error) {
 //
 // Derivation (v1): array not STARTED ⇒ DOWN (the Host is not doing its job);
 // any disabled/invalid disk ⇒ DEGRADED (redundancy compromised); sustained
-// load (>2× CPUs) or <5% free memory ⇒ DEGRADED; otherwise UP. A failure or a
-// report missing the critical array field is "can't tell" — an error, never
-// DOWN (rule 5 / ADR 0005); ARK-12's gate owns UNKNOWN.
+// load (>2× CPUs) or <5% free memory ⇒ DEGRADED; otherwise UP. A
+// transport-unreachable Host is a real DOWN measurement (rule 5 / ADR 0005);
+// parse/post-connection failures are "can't tell" — an error, never DOWN.
 type HostMetricsProbe struct {
 	name   string
 	runner Runner
@@ -122,6 +123,11 @@ const hostMetricsCmd = `mdcmd status 2>/dev/null | grep -E '^(mdState|mdNumDisab
 func (p *HostMetricsProbe) Probe(ctx context.Context) (core.ProbeResult, error) {
 	out, err := p.runner.Run(ctx, hostMetricsCmd)
 	if err != nil {
+		if errors.Is(err, ErrUnreachable) {
+			// ADR 0005: transport-unreachable Host is real DOWN and closes the
+			// gate; parse/post-connection failures are "can't tell" and skip.
+			return core.ProbeResult{Status: core.StatusDown, Err: fmt.Errorf("host-metrics probe %s: %w", p.name, err)}, nil
+		}
 		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
 	}
 

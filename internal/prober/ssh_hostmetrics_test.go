@@ -3,6 +3,7 @@ package prober
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,20 @@ func TestHostMetricsProbe_MissingOrInvalidDiskCountersIsNotUp(t *testing.T) {
 		require.Error(t, err, "report %q must error", out)
 		require.NotEqual(t, core.StatusUp, res.Status, "unknown disk health must never derive UP (rule 5)")
 	}
+}
+
+func TestHostMetricsProbe_TransportUnreachableIsDown(t *testing.T) {
+	r := &fakeRunner{err: fmt.Errorf("ssh dial: %w: %w", ErrUnreachable, errors.New("connection refused"))}
+	res, err := NewHostMetricsProbe("unraid", r).Probe(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, core.StatusDown, res.Status)
+}
+
+func TestHostMetricsProbe_NonTransportErrorSkips(t *testing.T) {
+	r := &fakeRunner{err: errors.New("boom")}
+	res, err := NewHostMetricsProbe("unraid", r).Probe(context.Background())
+	require.Error(t, err)
+	require.NotEqual(t, core.StatusUp, res.Status)
 }
 
 // An SSH failure or a report missing the critical array field is "can't

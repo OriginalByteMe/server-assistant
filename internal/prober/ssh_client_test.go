@@ -124,6 +124,29 @@ func TestSSHClient_AuthFailureErrorsWithoutLeakingSecret(t *testing.T) {
 	require.NotContains(t, err.Error(), "WRONG-PASSWORD", "the secret must never appear in errors (rule 8)")
 }
 
+func TestSSHClient_DialFailureIsUnreachable(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	c := NewSSHClient(SSHConfig{
+		Address:  addr,
+		User:     "probe",
+		Password: "s3cret",
+		Timeout:  100 * time.Millisecond,
+	})
+	_, err = c.Run(context.Background(), "whoami")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrUnreachable)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = c.Run(ctx, "whoami")
+	require.Error(t, err)
+	require.False(t, errors.Is(err, ErrUnreachable), "parent cancellation is not a DOWN reachability measurement")
+}
+
 // Every SSH call is bounded by an explicit timeout/context (CONVENTIONS rule
 // 4): a hung server does not hang the probe.
 func TestSSHClient_ContextTimeoutIsEnforced(t *testing.T) {

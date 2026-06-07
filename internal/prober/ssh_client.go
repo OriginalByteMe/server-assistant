@@ -2,6 +2,7 @@ package prober
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -36,6 +37,10 @@ type SSHClient struct {
 }
 
 var _ Runner = (*SSHClient)(nil)
+
+// ErrUnreachable marks SSH transport dial failures that are real reachability
+// DOWN samples.
+var ErrUnreachable = errors.New("ssh host unreachable")
 
 func NewSSHClient(cfg SSHConfig) *SSHClient { return &SSHClient{cfg: cfg} }
 
@@ -96,7 +101,10 @@ func (c *SSHClient) Run(ctx context.Context, cmd string) (string, error) {
 	d := net.Dialer{Timeout: c.cfg.Timeout}
 	conn, err := d.DialContext(ctx, "tcp", c.cfg.Address)
 	if err != nil {
-		return "", fmt.Errorf("ssh dial %s: %w", c.cfg.Address, err)
+		if errors.Is(err, context.Canceled) {
+			return "", fmt.Errorf("ssh dial %s: %w", c.cfg.Address, err)
+		}
+		return "", fmt.Errorf("ssh dial %s: %w: %w", c.cfg.Address, ErrUnreachable, err)
 	}
 	// Closing the conn unblocks the handshake/session goroutine on ctx
 	// expiry. Safe to call twice (net.Conn.Close is idempotent enough here).
