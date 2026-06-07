@@ -73,6 +73,25 @@ func TestHostMetricsProbe_MissingOrInvalidDiskCountersIsNotUp(t *testing.T) {
 	}
 }
 
+// Resource metrics (load/cpu/mem) are derivation inputs too: a report truncated
+// after the array block, or a non-numeric value, must surface an error
+// ("can't tell"), never a false-clean UP (rule 5 / ADR 0005). Mirrors the disk
+// counter guard above.
+func TestHostMetricsProbe_MissingOrInvalidResourceMetricIsNotUp(t *testing.T) {
+	cases := []string{
+		"mdState=STARTED\nmdNumDisabled=0\nmdNumInvalid=0\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n",             // load1 missing (truncated)
+		"mdState=STARTED\nmdNumDisabled=0\nmdNumInvalid=0\nload1=0.1\nmemTotal=16000000\nmemAvailable=9000000\n",          // cpus missing
+		"mdState=STARTED\nmdNumDisabled=0\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemAvailable=9000000\n",                     // memTotal missing
+		"mdState=STARTED\nmdNumDisabled=0\nmdNumInvalid=0\nload1=0.1\ncpus=8\nmemTotal=16000000\n",                        // memAvailable missing
+		"mdState=STARTED\nmdNumDisabled=0\nmdNumInvalid=0\nload1=oops\ncpus=8\nmemTotal=16000000\nmemAvailable=9000000\n", // load1 non-numeric
+	}
+	for _, out := range cases {
+		res, err := NewHostMetricsProbe("unraid", &fakeRunner{out: out}).Probe(context.Background())
+		require.Error(t, err, "report %q must error", out)
+		require.NotEqual(t, core.StatusUp, res.Status, "unknown resource health must never derive UP (rule 5)")
+	}
+}
+
 func TestHostMetricsProbe_TransportUnreachableIsDown(t *testing.T) {
 	r := &fakeRunner{err: fmt.Errorf("ssh dial: %w: %w", ErrUnreachable, errors.New("connection refused"))}
 	res, err := NewHostMetricsProbe("unraid", r).Probe(context.Background())

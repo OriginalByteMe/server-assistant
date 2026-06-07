@@ -166,16 +166,32 @@ func (p *HostMetricsProbe) Probe(ctx context.Context) (core.ProbeResult, error) 
 		return core.ProbeResult{Status: core.StatusDegraded}, nil
 	}
 
-	// Sustained overload: load1 above 2× the core count.
-	load1 := atofDefault(kv["load1"], 0)
-	cpus := atofDefault(kv["cpus"], 1)
+	// Sustained overload: load1 above 2× the core count. These resource
+	// metrics are derivation inputs too: a missing or non-numeric value is
+	// "can't tell", never a healthy default (rule 5 / ADR 0005) — exactly like
+	// the disk counters above. A report truncated after the array block must
+	// surface an error (monitor skips), never a false-clean UP.
+	load1, err := requireFloat(kv, "load1")
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
+	cpus, err := requireFloat(kv, "cpus")
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
 	if cpus > 0 && load1 > 2*cpus {
 		return core.ProbeResult{Status: core.StatusDegraded}, nil
 	}
 
 	// Memory pressure: under 5% available.
-	memTotal := atofDefault(kv["memTotal"], 0)
-	memAvail := atofDefault(kv["memAvailable"], 0)
+	memTotal, err := requireFloat(kv, "memTotal")
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
+	memAvail, err := requireFloat(kv, "memAvailable")
+	if err != nil {
+		return core.ProbeResult{}, fmt.Errorf("host-metrics probe %s: %w", p.name, err)
+	}
 	if memTotal > 0 && memAvail/memTotal < 0.05 {
 		return core.ProbeResult{Status: core.StatusDegraded}, nil
 	}
@@ -198,9 +214,17 @@ func requireInt(kv map[string]string, key string) (int, error) {
 	return n, nil
 }
 
-func atofDefault(s string, def float64) float64 {
-	if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
-		return f
+// requireFloat parses a mandatory float metric. Absent or non-numeric is a
+// hard error: a missing derivation input is "can't tell" (rule 5 / ADR 0005),
+// never a healthy default. Mirrors requireInt for the resource metrics.
+func requireFloat(kv map[string]string, key string) (float64, error) {
+	v, ok := kv[key]
+	if !ok {
+		return 0, fmt.Errorf("report missing %s", key)
 	}
-	return def
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil {
+		return 0, fmt.Errorf("report %s=%q is not a number", key, v)
+	}
+	return f, nil
 }
