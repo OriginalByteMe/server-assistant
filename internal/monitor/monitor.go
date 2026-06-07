@@ -220,11 +220,14 @@ func (m *Monitor) hostProbeOnce(ctx context.Context) {
 		slog.Error("host probe error", "host", h.name, "err", err)
 		return
 	}
-	reachable := res.Status == core.StatusUp
-	hostStatus := core.StatusDown
-	if reachable {
-		hostStatus = core.StatusUp
-	}
+	// The gate is about REACHABILITY, not health (ADR 0005 / rule 5). A Host
+	// that answers but is degraded (ssh_metrics: disk/load/memory pressure) is
+	// still reachable and probeable — only a genuinely unreachable (DOWN) Host
+	// blinds the observer and closes the gate. Record the Host's TRUE Status
+	// faithfully (UP/DEGRADED/DOWN): it is a first-class subject and collapsing
+	// DEGRADED into DOWN would be the observer lying.
+	hostStatus := res.Status
+	reachable := res.Status != core.StatusDown
 	now := time.Now().UTC()
 
 	// Publish the latest reachability to the gate and detect the transition in
@@ -251,8 +254,11 @@ func (m *Monitor) hostProbeOnce(ctx context.Context) {
 			slog.Error("save committed status", "host", h.name, "err", serr)
 		}
 		msg := h.name + " is reachable"
-		if committed == core.StatusDown {
+		switch committed {
+		case core.StatusDown:
 			msg = h.name + " is unreachable"
+		case core.StatusDegraded:
+			msg = h.name + " is degraded"
 		}
 		if nerr := m.notifier.Notify(ctx, core.Alert{
 			Subject: h.name, Status: committed, Message: msg,

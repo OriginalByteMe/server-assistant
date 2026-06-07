@@ -11,7 +11,10 @@ require (
 	modernc.org/sqlite v1.33.1
 )
 
-require github.com/go-telegram/bot v1.20.0
+require (
+	github.com/go-telegram/bot v1.20.0
+	golang.org/x/crypto v0.31.0
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -28,7 +31,7 @@ require (
 	github.com/sethvargo/go-retry v0.2.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.22.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
