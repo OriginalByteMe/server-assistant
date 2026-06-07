@@ -292,10 +292,19 @@ func (c *Config) validate() error {
 	if (c.Telegram.BotToken == "") != (c.Telegram.ChatID == "") {
 		return errors.New("telegram: bot_token and chat_id must both be set or both omitted")
 	}
-	var herr error
-	if c.History.window, herr = parseDurationDefault(c.History.WindowStr, 24*time.Hour); herr != nil {
-		return fmt.Errorf("history window: %w", herr)
+	if c.History.WindowStr == "" {
+		c.History.window = 24 * time.Hour
+		return nil
 	}
+	d, err := time.ParseDuration(c.History.WindowStr)
+	if err != nil {
+		return fmt.Errorf("history window: %w", err)
+	}
+	if d < 0 {
+		return fmt.Errorf("history window: must not be negative, got %s", c.History.WindowStr)
+	}
+	// retain <= 0 is the monitor's documented no-prune mode.
+	c.History.window = d
 	return nil
 }
 

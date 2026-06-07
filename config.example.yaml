@@ -77,7 +77,8 @@ services:
 # Rolling Probe-sample retention (ARK-9 / ADR 0002). Samples older than the
 # window are pruned per subject as each Probe is recorded, so SQLite history
 # cannot grow unbounded. The dashboard renders a latency/Status trend
-# sparkline per Service and Host from this window. Optional: defaults to 24h.
+# sparkline per Service and Host from this window. Set 0 or 0s to disable
+# pruning. Optional: defaults to 24h.
 # history:
 #   window: "24h"
 

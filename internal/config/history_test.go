@@ -24,9 +24,24 @@ func TestLoad_HistoryWindowParsed(t *testing.T) {
 	require.Equal(t, 6*time.Hour, c.History.Window())
 }
 
+func TestLoad_HistoryWindowZeroDisablesPruning(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\nhistory:\n  window: \"0s\"\n")
+	c, err := NewFileSource(p).Load(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), c.History.Window())
+}
+
 func TestLoad_HistoryWindowRejectsBadDuration(t *testing.T) {
 	p := writeTemp(t, "schema_version: 1\nhistory:\n  window: \"notaduration\"\n")
 	_, err := NewFileSource(p).Load(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "history window")
+}
+
+func TestLoad_HistoryWindowRejectsNegative(t *testing.T) {
+	p := writeTemp(t, "schema_version: 1\nhistory:\n  window: \"-5m\"\n")
+	_, err := NewFileSource(p).Load(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "history window")
+	require.Contains(t, err.Error(), "must not be negative")
 }
