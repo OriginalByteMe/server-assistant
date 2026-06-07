@@ -67,14 +67,15 @@ func (s *Store) RecordProbe(ctx context.Context, p core.ProbeSample) error {
 	return nil
 }
 
-// LoadProbeSamples returns a Service's recorded Probe samples, oldest first.
-func (s *Store) LoadProbeSamples(ctx context.Context, service string) ([]core.ProbeSample, error) {
-	rows, err := s.q.ListProbeSamples(ctx, service)
+// LoadProbeSamples returns up to limit most-recent samples, oldest first.
+func (s *Store) LoadProbeSamples(ctx context.Context, service string, limit int) ([]core.ProbeSample, error) {
+	rows, err := s.q.ListProbeSamples(ctx, db.ListProbeSamplesParams{Service: service, Limit: int64(limit)})
 	if err != nil {
 		return nil, fmt.Errorf("load probe samples for %s: %w", service, err)
 	}
 	out := make([]core.ProbeSample, 0, len(rows))
-	for _, r := range rows {
+	for i := len(rows) - 1; i >= 0; i-- {
+		r := rows[i]
 		out = append(out, core.ProbeSample{
 			Service: r.Service,
 			Status:  core.Status(r.Status),
@@ -83,6 +84,19 @@ func (s *Store) LoadProbeSamples(ctx context.Context, service string) ([]core.Pr
 		})
 	}
 	return out, nil
+}
+
+// PruneProbeSamples deletes a subject's Probe samples older than before,
+// enforcing the rolling-retention window so history cannot grow unbounded
+// (ADR 0002). Scoped per-subject; uses the (service, observed_at) index.
+func (s *Store) PruneProbeSamples(ctx context.Context, service string, before time.Time) error {
+	if err := s.q.PruneProbeSamples(ctx, db.PruneProbeSamplesParams{
+		Service:    service,
+		ObservedAt: before.UnixMilli(),
+	}); err != nil {
+		return fmt.Errorf("prune probe samples for %s: %w", service, err)
+	}
+	return nil
 }
 
 // SaveCommittedStatus upserts a Service's latest committed Status.

@@ -15,14 +15,16 @@ import (
 )
 
 type fakeVS struct {
-	snap []core.ServiceView
-	ch   chan core.ServiceView
+	snap    []core.ServiceView
+	ch      chan core.ServiceView
+	history map[string][]core.ProbeSample
 }
 
 func (f *fakeVS) Snapshot() []core.ServiceView { return f.snap }
 func (f *fakeVS) Subscribe() (<-chan core.ServiceView, func()) {
 	return f.ch, func() {}
 }
+func (f *fakeVS) History(name string) []core.ProbeSample { return f.history[name] }
 
 // The dashboard server-renders the Service list with Status, latency, and
 // last-checked, wired for live updates via vendored HTMX + its SSE extension

@@ -6,4 +6,9 @@ VALUES (?, ?, ?, ?);
 SELECT service, status, latency_ns, observed_at
 FROM probe_samples
 WHERE service = ?
-ORDER BY observed_at ASC, id ASC;
+ORDER BY observed_at DESC, id DESC
+LIMIT ?;
+
+-- name: PruneProbeSamples :exec
+DELETE FROM probe_samples
+WHERE service = ? AND observed_at < ?;
