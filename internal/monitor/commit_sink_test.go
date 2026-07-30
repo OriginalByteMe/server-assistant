@@ -3,7 +3,6 @@ package monitor
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,7 +17,7 @@ import (
 // the dashboard; M2 failure degrades to plain monitoring (ADR 0009).
 func TestMonitor_CommitSinkFailureCannotAlterCommittedStatus(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "monitor.db"))
+	st, err := store.Open(ctx, "file:commit-sink-failure?mode=memory&cache=shared")
 	require.NoError(t, err)
 	require.NoError(t, st.Migrate(ctx))
 	defer func() { require.NoError(t, st.Close()) }()
@@ -84,7 +83,7 @@ func (commitFailingStore) SaveCommittedStatus(context.Context, core.CommittedSta
 // observation must not run against a Status the Store could not save.
 func TestMonitor_CommitSinkRequiresPersistedStatus(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "monitor.db"))
+	st, err := store.Open(ctx, "file:commit-sink-persistence?mode=memory&cache=shared")
 	require.NoError(t, err)
 	require.NoError(t, st.Migrate(ctx))
 	defer func() { require.NoError(t, st.Close()) }()
