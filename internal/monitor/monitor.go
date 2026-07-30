@@ -38,6 +38,13 @@ type Host struct {
 	DebounceN int
 }
 
+// CommitSink is an in-process handoff after every v1 outcome (persistence,
+// Alert, and dashboard publication) has completed. It runs synchronously with
+// the Monitor's cancellation context; implementations must return promptly.
+// Any external I/O belongs behind the sink and must add an explicit timeout.
+// Sink errors are logged and cannot change the monitoring result.
+type CommitSink func(context.Context, core.CommittedStatus) error
+
 type serviceRuntime struct {
 	name      string
 	prober    core.Prober
@@ -58,9 +65,10 @@ type hostRuntime struct {
 
 // Monitor runs the poll loops and serves the dashboard's current view.
 type Monitor struct {
-	store    core.Store
-	notifier core.Notifier
-	svcs     []*serviceRuntime
+	store      core.Store
+	notifier   core.Notifier
+	svcs       []*serviceRuntime
+	commitSink CommitSink
 
 	host *hostRuntime
 	// gate is the ADR 0005 reachability gate: true = Host reachable (or no
@@ -90,6 +98,9 @@ const historyCap = 120
 // cannot grow unbounded (ADR 0002).
 func (m *Monitor) SetRetention(d time.Duration) { m.retain = d }
 
+// SetCommitSink attaches an optional downstream consumer before Run.
+func (m *Monitor) SetCommitSink(sink CommitSink) { m.commitSink = sink }
+
 // History returns a subject's most recent Probe samples, oldest→newest,
 // capped at historyCap — the dashboard's sparkline source.
 func (m *Monitor) History(name string) []core.ProbeSample {
@@ -109,6 +120,15 @@ func (m *Monitor) prune(ctx context.Context, subject string, now time.Time) {
 	}
 	if err := m.store.PruneProbeSamples(ctx, subject, now.Add(-m.retain)); err != nil {
 		slog.Error("prune probe samples", "subject", subject, "err", err)
+	}
+}
+
+func (m *Monitor) publishCommit(ctx context.Context, status core.CommittedStatus) {
+	if m.commitSink == nil {
+		return
+	}
+	if err := m.commitSink(ctx, status); err != nil {
+		slog.Error("observe committed status", "subject", status.Service, "status", status.Status.String(), "err", err)
 	}
 }
 
@@ -335,11 +355,15 @@ func (m *Monitor) hostProbeOnce(ctx context.Context) {
 	}
 
 	committed, changed := h.deb.Observe(hostStatus)
+	committedStatus := core.CommittedStatus{
+		Service: h.name, Status: committed, ChangedAt: now,
+	}
+	persisted := false
 	if changed {
-		if serr := m.store.SaveCommittedStatus(ctx, core.CommittedStatus{
-			Service: h.name, Status: committed, ChangedAt: now,
-		}); serr != nil {
+		if serr := m.store.SaveCommittedStatus(ctx, committedStatus); serr != nil {
 			slog.Error("save committed status", "host", h.name, "err", serr)
+		} else {
+			persisted = true
 		}
 		msg := h.name + " is reachable"
 		switch committed {
@@ -356,6 +380,9 @@ func (m *Monitor) hostProbeOnce(ctx context.Context) {
 		slog.Info("committed host status change", "host", h.name, "status", committed.String())
 	}
 	m.hub.broadcast(core.ServiceView{Name: h.name, Status: hostStatus, Latency: res.Latency, LastChecked: now})
+	if changed && persisted {
+		m.publishCommit(ctx, committedStatus)
+	}
 }
 
 func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
@@ -395,12 +422,16 @@ func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
 	committed, changed := m.observeService(s, derived)
 	view := core.ServiceView{Name: s.name, Status: committed, Latency: res.Latency, LastChecked: now}
 	m.setView(view)
+	committedStatus := core.CommittedStatus{
+		Service: s.name, Status: committed, ChangedAt: now,
+	}
+	persisted := false
 
 	if changed {
-		if serr := m.store.SaveCommittedStatus(ctx, core.CommittedStatus{
-			Service: s.name, Status: committed, ChangedAt: now,
-		}); serr != nil {
+		if serr := m.store.SaveCommittedStatus(ctx, committedStatus); serr != nil {
 			slog.Error("save committed status", "service", s.name, "err", serr)
+		} else {
+			persisted = true
 		}
 		if nerr := m.notifier.Notify(ctx, core.Alert{
 			Subject: s.name,
@@ -414,6 +445,9 @@ func (m *Monitor) probeOnce(ctx context.Context, s *serviceRuntime) {
 	// Push every probe so the dashboard's latency / last-checked stay live;
 	// Alerts (above) remain strictly debounced.
 	m.hub.broadcast(view)
+	if changed && persisted {
+		m.publishCommit(ctx, committedStatus)
+	}
 }
 
 func (m *Monitor) svcThreshold(s *serviceRuntime) time.Duration {
