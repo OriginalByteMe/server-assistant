@@ -39,8 +39,10 @@ type Host struct {
 }
 
 // CommitSink is an in-process handoff after every v1 outcome (persistence,
-// Alert, and dashboard publication) has completed. It runs synchronously with
-// the Monitor's cancellation context; implementations must return promptly.
+// Alert, and dashboard publication) has completed. Different subject poll
+// goroutines may invoke the sink concurrently, so implementations must be
+// concurrency-safe. Calls are synchronous with the Monitor's cancellation
+// context; implementations must stop and return when it is canceled.
 // Any external I/O belongs behind the sink and must add an explicit timeout.
 // Sink errors are logged and cannot change the monitoring result.
 type CommitSink func(context.Context, core.CommittedStatus) error
@@ -98,7 +100,12 @@ const historyCap = 120
 // cannot grow unbounded (ADR 0002).
 func (m *Monitor) SetRetention(d time.Duration) { m.retain = d }
 
-// SetCommitSink attaches an optional downstream consumer before Run.
+// SetCommitSink attaches an optional downstream consumer before Run. The sink
+// may be invoked concurrently by different subject poll goroutines, so it must
+// be concurrency-safe. Calls are synchronous; implementations must honor the
+// supplied cancellation context and return promptly.
+// Any external I/O belongs behind the sink and must add an explicit timeout.
+// Sink errors are logged and cannot change the monitoring result.
 func (m *Monitor) SetCommitSink(sink CommitSink) { m.commitSink = sink }
 
 // History returns a subject's most recent Probe samples, oldest→newest,
