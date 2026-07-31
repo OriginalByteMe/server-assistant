@@ -70,6 +70,98 @@ func TestMonitor_CommitSinkFailureCannotAlterCommittedStatus(t *testing.T) {
 	require.Equal(t, core.StatusDown, view.Status)
 }
 
+// Each Service has its own polling goroutine. A stateful CommitSink must
+// therefore tolerate simultaneous synchronous handoffs from separate Services.
+func TestMonitor_CommitSinkServiceCallbacksEnterConcurrently(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, "file:commit-sink-concurrent-services?mode=memory&cache=shared")
+	require.NoError(t, err)
+	require.NoError(t, st.Migrate(ctx))
+	defer func() { require.NoError(t, st.Close()) }()
+
+	m := New(st, &recordingNotifier{}, []Service{
+		{Name: "web", Prober: &fakeProber{res: core.ProbeResult{Status: core.StatusDown}}, Threshold: time.Second, Poll: time.Hour, DebounceN: 1},
+		{Name: "api", Prober: &fakeProber{res: core.ProbeResult{Status: core.StatusDown}}, Threshold: time.Second, Poll: time.Hour, DebounceN: 1},
+	})
+
+	entered := make(chan string, 2)
+	released := make(chan string, 2)
+	release := make(chan struct{})
+	m.SetCommitSink(func(sinkCtx context.Context, status core.CommittedStatus) error {
+		select {
+		case entered <- status.Service:
+		case <-sinkCtx.Done():
+			return sinkCtx.Err()
+		}
+		select {
+		case <-release:
+		case <-sinkCtx.Done():
+			return sinkCtx.Err()
+		}
+		select {
+		case released <- status.Service:
+		case <-sinkCtx.Done():
+			return sinkCtx.Err()
+		}
+		return nil
+	})
+	require.NoError(t, m.Resume(ctx))
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		m.Run(runCtx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("Monitor.Run did not stop after cancellation")
+		}
+	}()
+
+	enteredNames := make(map[string]struct{}, 2)
+	for range 2 {
+		select {
+		case name := <-entered:
+			_, duplicate := enteredNames[name]
+			require.False(t, duplicate, "commit sink entered twice for %q", name)
+			enteredNames[name] = struct{}{}
+		case <-time.After(2 * time.Second):
+			t.Fatal("commit sink callbacks did not enter concurrently")
+		}
+	}
+	require.Equal(t, map[string]struct{}{"web": {}, "api": {}}, enteredNames)
+
+	close(release)
+	releasedNames := make(map[string]struct{}, 2)
+	for range 2 {
+		select {
+		case name := <-released:
+			_, duplicate := releasedNames[name]
+			require.False(t, duplicate, "commit sink released twice for %q", name)
+			releasedNames[name] = struct{}{}
+		case <-time.After(2 * time.Second):
+			t.Fatal("commit sink callbacks did not return after release")
+		}
+	}
+	require.Equal(t, enteredNames, releasedNames)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Monitor.Run did not stop after cancellation")
+	}
+	select {
+	case name := <-entered:
+		t.Fatalf("commit sink entered unexpectedly for %q", name)
+	default:
+	}
+}
+
 type commitFailingStore struct {
 	core.Store
 }
