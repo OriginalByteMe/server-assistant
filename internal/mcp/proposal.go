@@ -44,6 +44,15 @@ type ProposalSink interface {
 // configured" clearly rather than fabricating a pending proposal.
 var ErrProposalsNotConfigured = errors.New("proposal tracking is not configured yet")
 
+// ErrProposalNotFound reports that the id is unknown to a sink that is
+// otherwise wired and working. It is deliberately distinct from
+// ErrProposalsNotConfigured, which means no grant model is wired in at
+// all: conflating them tells the LLM to go ask a human to finish wiring a
+// seam that is already finished. The composition root translates
+// scripts.ErrProposalNotFound into this, because internal/mcp must not
+// import internal/scripts (CONVENTIONS rule 2).
+var ErrProposalNotFound = errors.New("proposal not found")
+
 // NoopProposalSink is the default ProposalSink until HL-SA-18's grant
 // model is wired into the composition root.
 type NoopProposalSink struct{}
@@ -70,7 +79,7 @@ func registerProposalTools(s *Server, sink ProposalSink, dashboardBaseURL string
 			"awaiting_approval, approved | denied | expired, running, succeeded | failed. " +
 			"Nothing has touched the host before `running` — a dry run is sandboxed and " +
 			"approval only advances the proposal, it does not execute anything. " +
-			"If this build has no mutating tool wired in, the call reports not_configured instead.",
+			"An unknown id reports not_found; a build with no mutating tool wired in reports not_configured.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -86,12 +95,23 @@ func registerProposalTools(s *Server, sink ProposalSink, dashboardBaseURL string
 		Annotations: Annotations{ReadOnlyHint: true, IdempotentHint: true},
 		Handler: func(ctx context.Context, args map[string]any, _ bool) (ToolResult, error) {
 			p, err := sink.GetProposal(ctx, stringArg(args, "id"))
-			if err != nil {
+			switch {
+			case errors.Is(err, ErrProposalNotFound):
+				return structuredError(
+					"not_found", err.Error(),
+					"re-check the id returned by the mutating tool call",
+				), nil
+			case errors.Is(err, ErrProposalsNotConfigured):
 				alt := "ask a human to finish wiring the mutating-tool grant model (HL-SA-18)"
 				if dashboardBaseURL != "" {
 					alt = "check " + dashboardBaseURL + " directly; " + alt
 				}
 				return structuredError("not_configured", err.Error(), alt), nil
+			case err != nil:
+				return structuredError(
+					"unavailable", err.Error(),
+					"retry; if it persists, ask a human to check the server logs",
+				), nil
 			}
 			return renderResult(map[string]any{
 				"proposalId": p.ProposalID,

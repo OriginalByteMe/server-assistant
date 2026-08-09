@@ -144,8 +144,8 @@ actually built and stays as history; this section is what the product is now.
 **Shipped this session, live and verified on `rijkaardserver`:**
 
 - Unraid-resident dashboard (`http://100.90.134.29:8099/unraid`) and a
-  stateless MCP endpoint (`http://100.90.134.29:8099/mcp`, 9 tools across 5
-  categories: host, storage, containers, proposals, scripts) —
+  stateless MCP endpoint (`http://100.90.134.29:8099/mcp`, 11 tools across 6
+  categories: host, storage, containers, proposals, trends, scripts) —
   `docker compose ps` reports `server-assistant: Up (healthy)`.
 - Key-free collectors: host vitals from `core.SourceProcfs` (`/host/proc`),
   array/share state from `core.SourceEmhttp` (`/var/local/emhttp` INI

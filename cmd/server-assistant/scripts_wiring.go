@@ -185,6 +185,9 @@ func (b *proposalBridge) Propose(ctx context.Context, text string) (mcp.Proposal
 
 func (b *proposalBridge) GetProposal(ctx context.Context, id string) (mcp.ProposalStatus, error) {
 	p, err := b.reg.GetProposal(ctx, id)
+	if errors.Is(err, scripts.ErrProposalNotFound) {
+		return mcp.ProposalStatus{}, mcp.ErrProposalNotFound
+	}
 	if err != nil {
 		return mcp.ProposalStatus{}, err
 	}

@@ -275,6 +275,31 @@ func TestGetProposalReportsNotConfigured(t *testing.T) {
 	assert.Contains(t, text, "not_configured")
 }
 
+// wiredSink is a ProposalSink that is fully wired but does not know the id.
+// The distinction matters: reporting this as "not_configured" tells the LLM
+// to ask a human to finish wiring a seam that is already finished.
+type wiredSink struct{}
+
+func (wiredSink) Propose(context.Context, string) (ProposalRef, error) {
+	return ProposalRef{}, ErrProposalNotFound
+}
+
+func (wiredSink) GetProposal(context.Context, string) (ProposalStatus, error) {
+	return ProposalStatus{}, ErrProposalNotFound
+}
+
+func TestGetProposalUnknownIDIsNotFound(t *testing.T) {
+	s := NewServer(&fakeSource{}, wiredSink{}, ServerOptions{})
+	resp := rpcCall(t, s, "tools/call", map[string]any{"name": "get_proposal", "arguments": map[string]any{"id": "no-such-id"}})
+	require.Nil(t, resp["error"])
+	result := resp["result"].(map[string]any)
+	assert.Equal(t, true, result["isError"])
+	text := result["content"].([]any)[0].(map[string]any)["text"].(string)
+	assert.Contains(t, text, "not_found")
+	assert.NotContains(t, text, "not_configured")
+	assert.NotContains(t, text, "HL-SA-18", "a wired sink must not send the LLM off to get the seam wired")
+}
+
 func TestGetMethodReturns405(t *testing.T) {
 	s := newTestServer(&fakeSource{})
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
