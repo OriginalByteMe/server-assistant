@@ -46,6 +46,24 @@ type HostInfo struct {
 	CollectedAt   time.Time
 }
 
+// StateSource names where a reading actually came from. It exists because
+// this product degrades rather than fails when no unraid-api credential is
+// available: array and share state fall back to /var/local/emhttp's INI
+// files, which carry fewer fields than GraphQL does. A user comparing a
+// sparse dashboard against a full one must be able to tell "this machine has
+// no parity data" from "we read this the cheap way" — collapsing those two
+// into an indistinguishable view is exactly the lie CONVENTIONS rule 5
+// forbids.
+type StateSource string
+
+const (
+	// SourceUnraidAPI — read from unraid-api's GraphQL, the full-fidelity path.
+	SourceUnraidAPI StateSource = "unraid-api"
+	// SourceEmhttp — read from /var/local/emhttp/*.ini because no API
+	// credential was available. Fewer fields; absent ones stay absent.
+	SourceEmhttp StateSource = "emhttp"
+)
+
 // ArrayState is the array and its parity, the noun an Unraid user thinks in.
 type ArrayState struct {
 	// State is Unraid's own vocabulary: STARTED, STOPPED, NEW_ARRAY, ...
@@ -57,8 +75,11 @@ type ArrayState struct {
 	ParityCheckProgress float64
 	ParityLastCheck     *time.Time
 	ParityLastErrors    int64
-	Disks               []Disk
-	CollectedAt         time.Time
+	// Source records which path produced this reading. Never leave it empty
+	// on a successful read.
+	Source      StateSource
+	Disks       []Disk
+	CollectedAt time.Time
 }
 
 // Disk is one physical device as the array sees it.
@@ -87,6 +108,9 @@ type Share struct {
 	CachePool  string
 	Exported   bool
 	Accessible bool
+	// Source records which path produced this reading. Never leave it empty
+	// on a successful read.
+	Source StateSource
 }
 
 // Container is one Docker container on the Host.

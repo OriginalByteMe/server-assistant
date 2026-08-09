@@ -183,7 +183,12 @@ type arrayView struct {
 	ParityLastCheck  string
 	ParityLastErrors int64
 	Disks            []diskView
-	CollectedAt      string
+	// Degraded is true when this reading came from the emhttp INI fallback
+	// rather than unraid-api. The panel says so, because a user comparing a
+	// sparse array view against a full one must be able to tell "no parity
+	// data on this machine" from "we read this the cheap way".
+	Degraded    bool
+	CollectedAt string
 }
 
 // diskView never lets a spun-down disk's TempC render as a bogus reading —
@@ -219,6 +224,7 @@ func arraySectionOf(ctx context.Context, us core.UnraidSource) arraySection {
 		ParityLastCheck:  lastCheck,
 		ParityLastErrors: a.ParityLastErrors,
 		Disks:            disks,
+		Degraded:         a.Source == core.SourceEmhttp,
 		CollectedAt:      timeOrDash(a.CollectedAt),
 	}}
 }
@@ -385,6 +391,9 @@ var unraidPageTmpl = template.Must(template.New("unraid").Parse(`<!doctype html>
 {{- if .Array.Data.ParityActive }} — parity check running: {{ .Array.Data.ParityProgress }}
 {{- else }} — last parity check: {{ .Array.Data.ParityLastCheck }} ({{ .Array.Data.ParityLastErrors }} errors)
 {{- end }}</p>
+{{- if .Array.Data.Degraded }}
+<p class="alert-unauth">Read from Unraid's on-disk state files, not the Unraid API — no API key is configured, so some fields the API would provide are unavailable here. Values shown are real; absent ones are simply not in this source.</p>
+{{- end }}
 <table>
 <thead><tr><th>Disk</th><th>Role</th><th>Size</th><th>Used</th><th>Temp</th><th>SMART</th></tr></thead>
 <tbody>

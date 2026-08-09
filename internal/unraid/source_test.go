@@ -2,6 +2,7 @@ package unraid
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -80,6 +81,7 @@ func TestSource_Array_MapsDisksAndSmartStatusAcrossQueries(t *testing.T) {
 	array, err := src.Array(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "STARTED", array.State)
+	assert.Equal(t, core.SourceUnraidAPI, array.Source, "a successful GraphQL read must be tagged unraid-api")
 	require.Len(t, array.Disks, 2)
 
 	byName := map[string]core.Disk{}
@@ -122,4 +124,104 @@ func TestSource_Reachability_Absent(t *testing.T) {
 	r, err := src.Reachability(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, core.ReachAbsent, r.State)
+}
+
+func TestSource_Array_FallsBackToEmhttp_OnUnauthenticated(t *testing.T) {
+	withRealEmhttpFixtures(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	cfg := loadUnraidConfig(t, srv.URL, "smartctl", "tailscale", "/no/such/sock")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	array, err := src.Array(context.Background())
+	require.NoError(t, err, "an unauthenticated GraphQL read must fall back to emhttp, not surface as an error")
+	assert.Equal(t, core.SourceEmhttp, array.Source, "the fallback read must be tagged emhttp so the dashboard can tell it apart from a full unraid-api read")
+	assert.Equal(t, "STARTED", array.State)
+	assert.NotEmpty(t, array.Disks, "the emhttp fallback must still surface real disks, not an empty array")
+}
+
+func TestSource_Array_NonAuthGraphQLError_DoesNotFallBack(t *testing.T) {
+	// emhttpDir points nowhere real: if Array() incorrectly fell back on a
+	// non-auth error, this read would fail with a file-not-found style
+	// error instead of surfacing the original GraphQL message below.
+	prevDir := emhttpDir
+	emhttpDir = filepath.Join(t.TempDir(), "does-not-exist")
+	t.Cleanup(func() { emhttpDir = prevDir })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"errors":[{"message":"boom: internal resolver error"}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := loadUnraidConfig(t, srv.URL, "smartctl", "tailscale", "/no/such/sock")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	array, err := src.Array(context.Background())
+	require.Error(t, err, "a non-auth GraphQL error must surface as an error, never be swallowed by a fallback")
+	assert.False(t, errors.Is(err, core.ErrUnauthenticated), "this error is not an auth failure and must not be mistaken for one")
+	assert.Contains(t, err.Error(), "boom: internal resolver error", "the original GraphQL error must reach the caller, not an emhttp-fallback error")
+	assert.Equal(t, core.ArrayState{}, array, "no partial or fallback data on a real failure")
+}
+
+func TestSource_Shares_MapsFromGraphQL_ProvenanceUnraidAPI(t *testing.T) {
+	withRealEmhttpFixtures(t) // shares.ini/sec.ini gap-fill (cachePool/exported) for the GraphQL path
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"shares":[{"name":"Media","size":"0","free":"364476616","used":"132131768","allocator":"highwater"}]}}`))
+	}))
+	defer srv.Close()
+
+	cfg := loadUnraidConfig(t, srv.URL, "smartctl", "tailscale", "/no/such/sock")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	shares, err := src.Shares(context.Background())
+	require.NoError(t, err)
+	require.Len(t, shares, 1)
+	assert.Equal(t, "Media", shares[0].Name)
+	assert.Equal(t, "cache", shares[0].CachePool, "cachePool is GraphQL's own gap, filled from shares.ini")
+	assert.False(t, shares[0].Exported, `sec.ini export="-" means not exported`)
+	assert.Equal(t, core.SourceUnraidAPI, shares[0].Source, "a successful GraphQL read must be tagged unraid-api")
+}
+
+func TestSource_Shares_FallsBackToEmhttp_OnUnauthenticated(t *testing.T) {
+	withRealEmhttpFixtures(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	cfg := loadUnraidConfig(t, srv.URL, "smartctl", "tailscale", "/no/such/sock")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	shares, err := src.Shares(context.Background())
+	require.NoError(t, err, "an unauthenticated GraphQL read must fall back to emhttp, not surface as an error")
+	require.NotEmpty(t, shares)
+	for _, sh := range shares {
+		assert.Equal(t, core.SourceEmhttp, sh.Source, "every share from the fallback path must be tagged emhttp")
+	}
+}
+
+func TestSource_Shares_NonAuthGraphQLError_DoesNotFallBack(t *testing.T) {
+	prevDir := emhttpDir
+	emhttpDir = filepath.Join(t.TempDir(), "does-not-exist")
+	t.Cleanup(func() { emhttpDir = prevDir })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"errors":[{"message":"boom: internal resolver error"}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := loadUnraidConfig(t, srv.URL, "smartctl", "tailscale", "/no/such/sock")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	shares, err := src.Shares(context.Background())
+	require.Error(t, err, "a non-auth GraphQL error must surface as an error, never be swallowed by a fallback")
+	assert.False(t, errors.Is(err, core.ErrUnauthenticated))
+	assert.Contains(t, err.Error(), "boom: internal resolver error")
+	assert.Nil(t, shares, "no partial or fallback data on a real failure")
 }

@@ -157,7 +157,11 @@ type arrayDTO struct {
 	ParityLastCheck     *string   `json:"parity_last_check"`
 	ParityLastErrors    int64     `json:"parity_last_errors"`
 	Disks               []diskDTO `json:"disks"`
-	CollectedAt         string    `json:"collected_at"`
+	// Source is where this reading came from: "unraid-api" (full fidelity)
+	// or "emhttp" (the key-free INI fallback, which carries fewer fields).
+	// Without it a consumer cannot tell an absent field from a degraded read.
+	Source      string `json:"source"`
+	CollectedAt string `json:"collected_at"`
 }
 
 func toArrayDTO(a core.ArrayState) arrayDTO {
@@ -176,6 +180,7 @@ func toArrayDTO(a core.ArrayState) arrayDTO {
 		ParityLastCheck:     lastCheck,
 		ParityLastErrors:    a.ParityLastErrors,
 		Disks:               disks,
+		Source:              string(a.Source),
 		CollectedAt:         a.CollectedAt.Format(time.RFC3339),
 	}
 }
@@ -189,6 +194,7 @@ type shareDTO struct {
 	CachePool  string `json:"cache_pool"`
 	Exported   bool   `json:"exported"`
 	Accessible bool   `json:"accessible"`
+	Source     string `json:"source"`
 }
 
 func toShareDTO(s core.Share) shareDTO {
@@ -201,6 +207,7 @@ func toShareDTO(s core.Share) shareDTO {
 		CachePool:  s.CachePool,
 		Exported:   s.Exported,
 		Accessible: s.Accessible,
+		Source:     string(s.Source),
 	}
 }
 

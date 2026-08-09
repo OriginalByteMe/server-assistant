@@ -412,3 +412,26 @@ func TestUnraidPage_UsesVendoredHTMXNoNewJS(t *testing.T) {
 	require.Contains(t, body, `src="/static/htmx.min.js"`)
 	require.False(t, strings.Contains(body, "<script src=\"http"), "no externally-hosted script")
 }
+
+// Provenance must reach the human. When array state came from the emhttp INI
+// fallback rather than unraid-api, the panel says so — otherwise a user
+// cannot tell "this machine has no parity data" from "we read this the cheap
+// way and that field isn't in this source" (CONVENTIONS rule 5). The full-API
+// path must NOT show the notice, or it becomes noise everyone learns to skip.
+func TestUnraidPage_EmhttpFallbackIsDisclosedApiPathIsNot(t *testing.T) {
+	degraded := fullFakeUnraidSource()
+	degraded.array.Source = core.SourceEmhttp
+
+	rec := httptest.NewRecorder()
+	HandlerFull(&fakeVS{}, nil, degraded, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unraid", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "not the Unraid API")
+
+	full := fullFakeUnraidSource()
+	full.array.Source = core.SourceUnraidAPI
+
+	rec = httptest.NewRecorder()
+	HandlerFull(&fakeVS{}, nil, full, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unraid", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotContains(t, rec.Body.String(), "not the Unraid API")
+}

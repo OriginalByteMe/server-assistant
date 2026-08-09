@@ -2,6 +2,7 @@ package unraid
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -81,13 +82,32 @@ func (s *Source) HostInfo(ctx context.Context) (core.HostInfo, error) {
 	}, nil
 }
 
+// Array reads array/parity/disk state, falling back to /var/local/emhttp's
+// INI files (HL-SA-22) when and only when unraid-api rejects the
+// credential (errors.Is core.ErrUnauthenticated) — any other GraphQL
+// failure still surfaces as an error rather than silently degrading.
 func (s *Source) Array(ctx context.Context) (core.ArrayState, error) {
+	array, err := s.arrayFromGraphQL(ctx)
+	if err == nil {
+		return array, nil
+	}
+	if !errors.Is(err, core.ErrUnauthenticated) {
+		return core.ArrayState{}, err
+	}
+	return s.arrayFromEmhttp(ctx)
+}
+
+// arrayFromGraphQL is the full-fidelity path: unraid-api's Array/parity/disk
+// query plus the separate top-level disks{} query for smartStatus.
+func (s *Source) arrayFromGraphQL(ctx context.Context) (core.ArrayState, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.GraphQLTimeout())
 	defer cancel()
 
 	var resp arrayResponse
 	if err := s.gql.do(ctx, arrayQuery, &resp); err != nil {
-		s.log.ErrorContext(ctx, "unraid array read failed", "error", err)
+		if !errors.Is(err, core.ErrUnauthenticated) {
+			s.log.ErrorContext(ctx, "unraid array read failed", "error", err)
+		}
 		return core.ArrayState{}, fmt.Errorf("unraid array: %w", err)
 	}
 
@@ -122,9 +142,26 @@ func (s *Source) Array(ctx context.Context) (core.ArrayState, error) {
 		ParityCheckProgress: progress,
 		ParityLastCheck:     lastCheck,
 		ParityLastErrors:    lastErrors,
+		Source:              core.SourceUnraidAPI,
 		Disks:               disks,
 		CollectedAt:         time.Now(),
 	}, nil
+}
+
+// arrayFromEmhttp is the no-API-key fallback: /var/local/emhttp's INI files
+// (HL-SA-22). Logged once per fallback at INFO, not ERROR: a missing API
+// key is an expected, diagnosable degradation, not a failure.
+func (s *Source) arrayFromEmhttp(ctx context.Context) (core.ArrayState, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.EmhttpTimeout())
+	defer cancel()
+
+	s.log.InfoContext(ctx, "unraid array state read from emhttp: unraid-api credential absent")
+	array, err := readArrayStateFromEmhttp(ctx)
+	if err != nil {
+		s.log.ErrorContext(ctx, "unraid array emhttp fallback read failed", "error", err)
+		return core.ArrayState{}, fmt.Errorf("unraid array: emhttp fallback: %w", err)
+	}
+	return array, nil
 }
 
 // mapArrayDisks converts one array.{disks,caches,parities} fragment list to
@@ -167,13 +204,29 @@ func mapArrayDisks(fragments []arrayDiskFragment, smartStatus map[string]string)
 	return out
 }
 
+// Shares reads user share state, falling back to /var/local/emhttp's INI
+// files (HL-SA-22) when and only when unraid-api rejects the credential —
+// same rule as Array.
 func (s *Source) Shares(ctx context.Context) ([]core.Share, error) {
+	shares, err := s.sharesFromGraphQL(ctx)
+	if err == nil {
+		return shares, nil
+	}
+	if !errors.Is(err, core.ErrUnauthenticated) {
+		return nil, err
+	}
+	return s.sharesFromEmhttp(ctx)
+}
+
+func (s *Source) sharesFromGraphQL(ctx context.Context) ([]core.Share, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.GraphQLTimeout())
 	defer cancel()
 
 	var resp sharesResponse
 	if err := s.gql.do(ctx, sharesQuery, &resp); err != nil {
-		s.log.ErrorContext(ctx, "unraid shares read failed", "error", err)
+		if !errors.Is(err, core.ErrUnauthenticated) {
+			s.log.ErrorContext(ctx, "unraid shares read failed", "error", err)
+		}
 		return nil, fmt.Errorf("unraid shares: %w", err)
 	}
 
@@ -197,9 +250,25 @@ func (s *Source) Shares(ctx context.Context) ([]core.Share, error) {
 			CachePool:  g.cachePool,
 			Exported:   g.exported,
 			Accessible: shareAccessible(sh.Name),
+			Source:     core.SourceUnraidAPI,
 		})
 	}
 	return out, nil
+}
+
+// sharesFromEmhttp is the no-API-key fallback: shares.ini/sec.ini directly
+// (HL-SA-22). Logged once per fallback at INFO, matching arrayFromEmhttp.
+func (s *Source) sharesFromEmhttp(ctx context.Context) ([]core.Share, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.EmhttpTimeout())
+	defer cancel()
+
+	s.log.InfoContext(ctx, "unraid shares read from emhttp: unraid-api credential absent")
+	shares, err := readSharesFromEmhttp(ctx)
+	if err != nil {
+		s.log.ErrorContext(ctx, "unraid shares emhttp fallback read failed", "error", err)
+		return nil, fmt.Errorf("unraid shares: emhttp fallback: %w", err)
+	}
+	return shares, nil
 }
 
 func (s *Source) Containers(ctx context.Context) ([]core.Container, error) {
