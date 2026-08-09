@@ -22,6 +22,12 @@ import (
 	"server-assistant/internal/core"
 )
 
+// commandRunTimeout bounds one operator command run. Deliberately larger
+// than handlerTimeout: this handler mutates, and mutations are slow — see
+// handleAPICommandRun's comment for why sharing the read budget broke every
+// real restart.
+const commandRunTimeout = 60 * time.Second
+
 // Command is one operator-runnable action the dashboard can offer. ID is
 // stable and opaque to the client (e.g. "restart-container:sa-demo-web");
 // Consequence is the one plain-English line a non-expert reads BEFORE
@@ -147,7 +153,18 @@ func handleAPICommandRun(cs CommandSource) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
+		// NOT handlerTimeout: that 5s ceiling is sized for read handlers,
+		// and a container restart legitimately takes longer than it (a
+		// busybox container ignoring SIGTERM alone burns ~5s before the
+		// engine SIGKILLs it). Sharing the read budget here made every
+		// real restart fail with "context deadline exceeded" while the
+		// restart itself succeeded on the host, and made the configured
+		// commands.timeout unreachable — the outer context always won.
+		// This is a backstop above CommandSource's own budget (which
+		// internal/commands bounds at commands.timeout, default 30s), so
+		// no handler can hang forever; a commands.timeout set above 60s
+		// is truncated here.
+		ctx, cancel := context.WithTimeout(r.Context(), commandRunTimeout)
 		defer cancel()
 
 		id := r.PathValue("id")
@@ -163,7 +180,9 @@ func handleAPICommandRun(cs CommandSource) http.HandlerFunc {
 		}
 
 		row := commandRowOf(Command{ID: id}, &result)
-		if cmds, cerr := cs.Commands(ctx); cerr == nil {
+		lookupCtx, lookupCancel := context.WithTimeout(r.Context(), handlerTimeout)
+		defer lookupCancel()
+		if cmds, cerr := cs.Commands(lookupCtx); cerr == nil {
 			for _, c := range cmds {
 				if c.ID == id {
 					row = commandRowOf(c, &result)

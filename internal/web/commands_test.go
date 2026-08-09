@@ -23,6 +23,7 @@ type fakeCommandSource struct {
 	result      CommandResult
 	runErr      error
 	runs        []string // ids Run was actually called with
+	runDeadline time.Duration
 }
 
 var _ CommandSource = (*fakeCommandSource)(nil)
@@ -31,9 +32,34 @@ func (f *fakeCommandSource) Commands(context.Context) ([]Command, error) {
 	return f.commands, f.commandsErr
 }
 
-func (f *fakeCommandSource) Run(_ context.Context, id, _ string) (CommandResult, error) {
+func (f *fakeCommandSource) Run(ctx context.Context, id, _ string) (CommandResult, error) {
 	f.runs = append(f.runs, id)
+	if dl, ok := ctx.Deadline(); ok {
+		f.runDeadline = time.Until(dl)
+	}
 	return f.result, f.runErr
+}
+
+// Regression (live, on rijkaardserver): the run handler used to share
+// handlerTimeout, the 5s ceiling sized for READ handlers. A real container
+// restart takes longer than that — a busybox container ignoring SIGTERM
+// alone burns ~5s before the engine SIGKILLs it — so every genuine restart
+// came back "context deadline exceeded" while the restart actually
+// succeeded on the host, and the configured commands.timeout was
+// unreachable because the outer context always won.
+func TestCommandRun_GetsMoreThanTheReadHandlerBudget(t *testing.T) {
+	cs := &fakeCommandSource{
+		commands: []Command{{ID: "restart-container:sa-demo-web", Label: "Restart sa-demo-web"}},
+		result:   CommandResult{OK: true, Output: "restarted", StartedAt: time.Now(), FinishedAt: time.Now()},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/unraid/commands/restart-container:sa-demo-web/run", nil)
+	HandlerComplete(&fakeVS{}, nil, fullFakeUnraidSource(), nil, cs).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Greater(t, cs.runDeadline, handlerTimeout,
+		"a mutating command must not inherit the read-handler timeout")
 }
 
 // The consequence line must be visible before any click — this tier has no
