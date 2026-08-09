@@ -1,35 +1,51 @@
-All 6 tools called successfully. Tools invoked, in order: `get_host_info`, `get_array_state`, `list_shares`, `get_reachability`, `check_script`, `propose_script` (all under the `mcp__server-assistant__` prefix).
+Criterion 4 — real Claude client over the Tailscale MCP endpoint
+================================================================
 
-**1. get_host_info**
-- hostname: `RijkaardServer`
-- cpuPercent: `0.71`
-- source: `procfs`
+Captured 2026-08-09 against the DEPLOYED build at commit 58f61b4
+(container recreated and healthy at that commit; endpoint
+http://100.90.134.29:8099/mcp, bearer-authenticated).
 
-**2. get_array_state**
-- state: `STARTED`
-- disk count: `4` (2 data disks, 1 parity, 1 cache — no separate disk2)
-- source: `emhttp`
+Client:   `claude -p` (Claude Code CLI), registered via
+          `claude mcp add --transport http --scope local server-assistant \
+           http://100.90.134.29:8099/mcp --header "Authorization: Bearer <token>"`
+          `claude mcp list` -> "server-assistant: ... (HTTP) - Connected"
+Tools allowed for the run: get_host_info, get_array_state, list_shares,
+          check_script, get_proposal  (all under mcp__server-assistant__)
 
-**3. list_shares**
-- count: `24` shares
-- source: `emhttp`
+Five distinct tools called, all succeeded. Unraid info retrieval and a
+dry-run script invocation are both present, as the criterion requires.
 
-**4. get_reachability**
-- state: `tailnet`
-- detail: "reachable on the tailnet; no `tailscale serve`/`funnel` mapping configured for this port yet"
+1. get_host_info
+   hostname: RijkaardServer, unraidVersion: 7.3.2, cpuPercent: 2.15,
+   uptimeHours: 412.96, source: procfs
 
-**5. check_script** (`rm -rf /boot/config` + `exit 3`)
-- valid: `false`
-- reasons:
-  - `(a) script exited nonzero: 3`
-  - `(c) cmd=rm target=/boot/config reason=boot-write-forbidden`
+2. get_array_state
+   state: STARTED, parityCheckActive: false, parityCheckProgress: 0,
+   source: emhttp
+   Disks: cache (nvme0n1, 33C, OK), parity (sdc, 44C, OK),
+          disk3 (sdb, 40C, OK), disk1 (sdd, 40C, OK)
+   All smartStatus OK, none spun down.
 
-**6. propose_script** (`#!/bin/bash\ndf -h /\n`)
-- proposalId: `c73057ceba43ccff427efddadb6f4bf3`
-- state: `awaiting_approval`
-- dashboardUrl: `http://100.90.134.29:8099/unraid#proposal-c73057ceba43ccff427efddadb6f4bf3`
+3. list_shares
+   24 shares, each with usedBytes/freeBytes, source: emhttp.
+   Includes calibre_library, appdata, system (5.86TB used), docker, Plex,
+   lancache (4.82TB used), cache-migration-backup-20260722, immich, +15 more.
 
-**Flagged inconsistency — `list_shares` byte values**
-17 of the 24 shares (`media`, `snapshots`, `downloads`, `3D Printing`, `Plex`, `chunks`, `docker`, `nextcloud`, `custom_scripts`, `isos`, `orca-infra-backups`, `Unraid(Media)`, `VMs`, `calibre_library`, `domains`, plus `appdata`/`system` as a near-identical pair) report **byte-for-byte identical** `freeBytes`/`usedBytes`, clustering into just a few distinct value groups rather than per-share figures. That pattern looks like the tool is surfacing pool/array-level free/used space and stamping it onto every share living on that pool, rather than true per-share usage — worth treating `list_shares` sizes as pool-level, not authoritative per-share, until confirmed.
+4. check_script  -- DRY RUN, creates nothing
+   script: "#!/bin/bash\ndf -h /\n"
+   result: {"reasons":[],"valid":true,"warnings":[]}
 
-Everything else lines up with expectations: `check_script` correctly rejected the destructive script on two independent grounds (nonzero exit + `/boot` write), and `propose_script` correctly parked the benign `df -h /` script in `awaiting_approval` rather than running it — consistent with the MCP server's stated instruction that mutating actions require human approval via the dashboard and nothing executes automatically.
+5. get_proposal  -- id "definitely-not-a-real-id-xyz"
+   verbatim: {"code":"not_found","reason":"proposal not found",
+              "alternatives":["re-check the id returned by the mutating tool call"]}
+
+Note on step 5: before commit 58f61b4 this same call returned
+code "not_configured" with an alternative telling the caller to "ask a human
+to finish wiring the mutating-tool grant model (HL-SA-18)" -- a seam that is
+in fact wired and working. The capture above is the post-fix behaviour,
+observed through a real client rather than curl.
+
+Provenance note: an earlier version of this file recorded a six-tool run
+against an older build and an older token. It was replaced rather than
+appended to, because a transcript that does not match the running build is
+worse than no transcript (CONVENTIONS rule 5).
