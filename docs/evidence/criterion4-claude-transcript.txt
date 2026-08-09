@@ -1,30 +1,77 @@
-All 5 MCP tool calls complete. Raw results:
+Here are the raw results from the six MCP calls, in order.
 
-**1. `get_host_info`**
+**Tools called:** `get_host_info`, `get_array_state`, `list_containers`, `check_script`, `propose_script`, `get_proposal`
+
+---
+
+**1. get_host_info**
+```json
+{
+  "cpuPercent": 4.154727793696278,
+  "hostname": "RijkaardServer",
+  "source": "procfs",
+  "unraidVersion": "7.3.2",
+  "uptimeHours": 411.7944444444444
+}
+```
 - hostname: `RijkaardServer`
-- CPU percent: `2.29%` (with `detail:true`; the no-detail call moments earlier returned `22.3%` — both are live snapshots, just taken seconds apart)
-- memory used: `14,181,003,264` bytes / `33,572,700,160` bytes total (≈14.18 GB / 33.57 GB, ~42%)
-- uptime: `411.61` hours (≈17.2 days)
-- source field: **not present in the output**, with or without `detail:true`. The tool has no `source` key — I'm not going to fabricate one.
+- cpuPercent: `4.154727793696278`
+- uptimeHours: `411.7944444444444`
+- source: `procfs`
 
-**2. `get_array_state`**
-- array state: `STARTED`
-- disk count: `4` (1 parity, 2 data, 1 cache — all `smartStatus: OK`, none spun down)
+**2. get_array_state**
+```json
+{
+  "disks": [
+    {"device":"/dev/sdc","name":"parity","role":"parity","smartStatus":"OK","spunDown":false,"tempC":44},
+    {"device":"/dev/sdd","name":"disk1","role":"data","smartStatus":"OK","spunDown":false,"tempC":40},
+    {"device":"/dev/sdb","name":"disk3","role":"data","smartStatus":"OK","spunDown":false,"tempC":40},
+    {"device":"/dev/nvme0n1","name":"cache","role":"cache","smartStatus":"OK","spunDown":false,"tempC":35}
+  ],
+  "parityCheckActive": false,
+  "parityCheckProgress": 0,
+  "source": "emhttp",
+  "state": "STARTED"
+}
+```
+- state: `STARTED`
+- disk count: **4** (parity, disk1, disk3, cache)
+- source: `emhttp`
 
-**3. `list_containers`**
-- container count: `41`
+**3. list_containers**
+Response contains a `containers` array with **42** entries (no dedicated `count` field in the payload — I counted the array). All 42 report `state: "running"` except two `exited`: `tdarr-pre-hlmedia14-2026-08-05T02-04-34` and `bazarr-pre-stream-policy-20260801-101802`, and one more exited: `tdarr-safe-quarantined-20260731`. So 39 running / 3 exited, total 42.
 
-**4. `propose_script`**
-- Script: `#!/bin/bash\ndf -h /mnt/user`
-- Rationale: *(not reported — the tool's schema only accepts a `script` field, no rationale parameter exists, so nothing was sent)*
-- proposal_id: `02072d8316ad4980ff9b6a8bf0cfe1af`
-- status: `dry_run_failed`
-- dashboard_url: `http://100.90.134.29:8099/unraid#proposal-02072d8316ad4980ff9b6a8bf0cfe1af`
+**4. check_script** (`rm -rf /boot/config` + `exit 3`)
+```json
+{"reasons":["(a) script exited nonzero: 3","(c) cmd=rm target=/boot/config reason=boot-write-forbidden"],"valid":false,"warnings":[]}
+```
+- valid: `false`
+- reasons: `(a) script exited nonzero: 3`, `(c) cmd=rm target=/boot/config reason=boot-write-forbidden`
+- warnings: `[]` (empty)
 
-**5. `get_proposal`**
-- status: `dry_run_failed`
-- dry-run transcript summary: reasons array = `["(a) script exited nonzero: 1"]`, updatedAt `2026-08-09T14:00:09.612Z`. No transcript text was returned, only this failure reason.
+**5. propose_script** (`uptime`)
+```json
+{"dashboardUrl":"http://100.90.134.29:8099/unraid#proposal-1dc4655974322cebaec474252cc3a7f0","note":"A human must approve this on the dashboard before anything runs. Poll get_proposal for the outcome.","proposalId":"1dc4655974322cebaec474252cc3a7f0","state":"dry_run_failed"}
+```
+Every key verbatim: `dashboardUrl`, `note`, `proposalId`, `state` — as shown above.
 
-Tools called (all MCP, no non-MCP tools used): `get_host_info` (×2), `get_array_state`, `list_containers`, `propose_script`, `get_proposal`.
+**6. get_proposal** (id `1dc4655974322cebaec474252cc3a7f0`)
+```json
+{
+  "proposalId": "1dc4655974322cebaec474252cc3a7f0",
+  "reasons": ["(b) unshimmed binary invoked: /usr/bin/uptime (not on the read-only-safe allowlist, not a known-mutating shim)"],
+  "state": "dry_run_failed",
+  "updatedAt": "2026-08-09T14:11:08.33Z"
+}
+```
+- state: `dry_run_failed`
+- reasons: `(b) unshimmed binary invoked: /usr/bin/uptime (not on the read-only-safe allowlist, not a known-mutating shim)`
 
-Two things worth flagging: the dry-run for a plain `df -h /mnt/user` failed with exit code 1 rather than succeeding — likely `/mnt/user` doesn't exist or isn't mounted in whatever sandbox the dry-run executes in, worth checking if you rely on this path elsewhere. Also, the `get_proposal` tool's own description claims mutating tools aren't registered yet and every call should report `not_configured` — but it actually returned a real `dry_run_failed` state, so that description text is stale relative to current behavior.
+---
+
+**Flags:**
+
+1. **`propose_script`/`get_proposal` for a genuinely read-only command (`uptime`) failed dry-run**, not because it's unsafe but because `/usr/bin/uptime` isn't on the read-only-safe allowlist and has no shim. That's a false negative from a safety standpoint (the script is harmless) but a true negative from an allowlist standpoint (unshimmed binary = automatic reject). Worth knowing the allowlist gates on binary identity, not actual read/write behavior — a truly read-only script can still be rejected if its binary hasn't been vetted/shimmed.
+2. **Provenance field inconsistency**: `get_host_info` and `get_array_state` both return a `source` field (`procfs`, `emhttp`), but `list_containers` returns no `source`/provenance field at all — just the array. Not wrong, just an inconsistency in what "source" transparency looks like across tools.
+3. **No `count` field**: `list_containers` doesn't expose a count; I had to count the array (42) myself. If your spec expects a count field, it's missing.
+4. Real-host oddity (not a tool bug): array disks are named `parity`, `disk1`, `disk3`, `cache` — `disk2` is absent from the array. That's host state, not an MCP inconsistency, but flagging since it's unusual.
