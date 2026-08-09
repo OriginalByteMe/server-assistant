@@ -11,18 +11,21 @@ import (
 	"server-assistant/internal/core"
 )
 
-// dockerClient talks to the Docker Engine API over its Unix socket. No
+// DockerClient talks to the Docker Engine API over its Unix socket. No
 // docker SDK (CONVENTIONS rule 1): stdlib net/http with a custom dialer that
 // ignores the request's host and always dials the configured socket path —
-// the standard Go pattern for a Unix-socket HTTP client.
-type dockerClient struct {
+// the standard Go pattern for a Unix-socket HTTP client. Exported so
+// internal/commands (HL-SA-21's closed operator-command catalog) can reuse
+// this exact client for POST /containers/{name}/restart rather than
+// standing up a second Unix-socket HTTP implementation.
+type DockerClient struct {
 	socketPath string
 	http       *http.Client
 }
 
-func newDockerClient(socketPath string) *dockerClient {
+func NewDockerClient(socketPath string) *DockerClient {
 	dialer := net.Dialer{}
-	return &dockerClient{
+	return &DockerClient{
 		socketPath: socketPath,
 		http: &http.Client{
 			Transport: &http.Transport{
@@ -62,7 +65,7 @@ type dockerInspect struct {
 	} `json:"HostConfig"`
 }
 
-func (c *dockerClient) get(ctx context.Context, path string, out any) error {
+func (c *DockerClient) get(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://unix"+path, nil)
 	if err != nil {
 		return fmt.Errorf("unraid docker: build request %s: %w", path, err)
@@ -81,10 +84,30 @@ func (c *dockerClient) get(ctx context.Context, path string, out any) error {
 	return nil
 }
 
+// Restart issues a Docker Engine API POST /containers/{name}/restart. name
+// has already been validated by the caller against its own allowlist (this
+// client makes no target-safety decision of its own — CONVENTIONS rule 6)
+// and is simply interpolated into the request path.
+func (c *DockerClient) Restart(ctx context.Context, name string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://unix/containers/"+name+"/restart", nil)
+	if err != nil {
+		return fmt.Errorf("unraid docker: build restart request for %s: %w", name, err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("unraid docker: restart %s: %w", name, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unraid docker: restart %s returned http %d", name, resp.StatusCode)
+	}
+	return nil
+}
+
 // containers lists every container (running and stopped: "all=true", so a
 // crashed/stopped container is diagnosable rather than invisible) and
 // inspects each one for its restart policy.
-func (c *dockerClient) containers(ctx context.Context) ([]core.Container, error) {
+func (c *DockerClient) containers(ctx context.Context) ([]core.Container, error) {
 	var summaries []dockerContainerSummary
 	if err := c.get(ctx, "/containers/json?all=true", &summaries); err != nil {
 		return nil, err

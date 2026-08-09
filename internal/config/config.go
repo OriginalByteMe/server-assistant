@@ -61,6 +61,11 @@ type Config struct {
 	// (issue #51/#55). Not a pointer, same as History/Sampler: always
 	// present with defaults so grant TTLs are never silently unset.
 	Scripts ScriptsConfig `yaml:"scripts"`
+	// Commands bounds the HL-SA-21 closed operator-command catalog (issue
+	// #51). Not a pointer, same as Scripts: always present so the safe,
+	// opt-in default (an empty allowlist — see CommandsConfig's doc
+	// comment) is never silently unset.
+	Commands CommandsConfig `yaml:"commands"`
 }
 
 // HistoryConfig bounds Probe-sample retention. Samples older than Window are
@@ -423,6 +428,9 @@ func (c *Config) validate() error {
 		}
 	}
 	if err := c.Scripts.resolve(); err != nil {
+		return err
+	}
+	if err := c.Commands.resolve(); err != nil {
 		return err
 	}
 	return nil

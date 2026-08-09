@@ -23,7 +23,7 @@ import (
 func TestDashboard_NilHarnessDoesNotPanicOnHealth(t *testing.T) {
 	var hs *harness.Harness // deliberately typed nil, as run() has when cfg.Harness is absent
 
-	h := dashboard(nil, hs, nil, nil)
+	h := dashboard(nil, hs, nil, nil, nil)
 
 	rec := httptest.NewRecorder()
 	require.NotPanics(t, func() {

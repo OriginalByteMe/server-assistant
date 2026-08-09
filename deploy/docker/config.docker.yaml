@@ -40,6 +40,21 @@ unraid:
   # is hardcoded in internal/unraid/smart.go regardless of this config —
   # a disk asleep is skipped, never woken, no matter how it's reached.
 
+# HL-SA-21: the closed operator-command catalog (issue #51's "IN" action
+# tier — a closed verb, target resolved from this list, no free-form input).
+# allow_restart defaults to EMPTY; enabling it here is a deliberate,
+# per-container opt-in.
+#
+# DO NOT widen this list to real services while the dashboard is
+# unauthenticated (Noah's standing decision — see mcp.auth_token above).
+# The project's own risk register (HL-SA-10) says it plainly: that is the
+# moment unauthenticated mutation of real services becomes one POST away.
+# sa-demo-web is the throwaway demo container from docker-compose.yml —
+# safe to restart, nothing depends on it.
+commands:
+  allow_restart:
+    - sa-demo-web
+
 # The MCP endpoint stitches this into the initialize handshake and into the
 # dashboard_url a mutating tool fast-returns (GitHub #57 decision B3), so the
 # LLM can tell the human exactly where to go and approve. Left empty, every

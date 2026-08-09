@@ -72,7 +72,7 @@ func TestDockerClient_Containers(t *testing.T) {
 	restartPolicies := map[string]string{"abc123": "always", "def456": "no"}
 
 	sock := fakeDockerDaemon(t, summaries, restartPolicies)
-	client := newDockerClient(sock)
+	client := NewDockerClient(sock)
 
 	containers, err := client.containers(context.Background())
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestDockerClient_Containers(t *testing.T) {
 }
 
 func TestDockerClient_SocketUnreachable(t *testing.T) {
-	client := newDockerClient(filepath.Join(t.TempDir(), "no-such.sock"))
+	client := NewDockerClient(filepath.Join(t.TempDir(), "no-such.sock"))
 	_, err := client.containers(context.Background())
 	require.Error(t, err, "an unreachable socket must be a read error, never an empty container list")
 }

@@ -32,7 +32,7 @@ type ViewSource interface {
 // Handler returns the dashboard mux: the page at /, vendored assets under
 // /static/, and the SSE stream at /events.
 func Handler(vs ViewSource) http.Handler {
-	return buildMux(vs, nil, nil, nil)
+	return buildMux(vs, nil, nil, nil, nil)
 }
 
 // buildMux assembles the dashboard mux for the harness-blind constructor
@@ -41,7 +41,7 @@ func Handler(vs ViewSource) http.Handler {
 // one place; a nil hs/us/ps simply means those routes are never
 // registered, so ServeMux 404s them naturally and the dashboard renders no
 // Harness panel / no Unraid page / no proposal decision routes.
-func buildMux(vs ViewSource, hs HarnessSource, us core.UnraidSource, ps ProposalSource) *http.ServeMux {
+func buildMux(vs ViewSource, hs HarnessSource, us core.UnraidSource, ps ProposalSource, cs CommandSource) *http.ServeMux {
 	assets, _ := fs.Sub(staticFS, "static")
 
 	mux := http.NewServeMux()
@@ -71,7 +71,7 @@ func buildMux(vs ViewSource, hs HarnessSource, us core.UnraidSource, ps Proposal
 		registerAPIRoutes(mux, hs)
 	}
 	if us != nil {
-		registerUnraidRoutes(mux, us, ps)
+		registerUnraidRoutes(mux, us, ps, cs)
 	}
 	return mux
 }

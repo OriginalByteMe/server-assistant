@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"server-assistant/internal/actuator"
+	"server-assistant/internal/commands"
 	"server-assistant/internal/config"
 	"server-assistant/internal/core"
 	"server-assistant/internal/harness"
@@ -110,15 +111,15 @@ func harnessSecrets(cfg *config.Config) []string {
 // NON-nil interface holding a nil pointer, so web's `hs != nil` guards all
 // pass and /api/health panics on the first request. Found by deploying —
 // every unit test wired a real fake, so none of them could see it.
-func dashboard(mon *monitor.Monitor, hs *harness.Harness, us core.UnraidSource, ps web.ProposalSource) http.Handler {
+func dashboard(mon *monitor.Monitor, hs *harness.Harness, us core.UnraidSource, ps web.ProposalSource, cs web.CommandSource) http.Handler {
 	var hsrc web.HarnessSource
 	if hs != nil {
 		hsrc = hs
 	}
-	if hsrc == nil && us == nil && ps == nil {
+	if hsrc == nil && us == nil && ps == nil && cs == nil {
 		return web.Handler(mon)
 	}
-	return web.HandlerFull(mon, hsrc, us, ps)
+	return web.HandlerComplete(mon, hsrc, us, ps, cs)
 }
 
 func reloadKnobs(src config.Source, ctx context.Context) ([]monitor.Service, error) {
@@ -337,6 +338,7 @@ func run() error {
 	var (
 		unraidSrc  core.UnraidSource
 		bridge     *proposalBridge
+		cmdSrc     *commands.Source
 		smp        *sampler.Sampler
 		mcpHandler http.Handler
 	)
@@ -368,10 +370,19 @@ func run() error {
 		registerScriptTools(mcpSrv, bridge, exec)
 		mcpHandler = mcpSrv.Handler()
 		slog.Info("mcp endpoint enabled", "path", "/mcp")
+
+		// The operator-command catalog: closed verbs, targets resolved from
+		// config, never from the request (issue #51's first action tier).
+		// Defaults to an empty allowlist, so this is inert until an operator
+		// deliberately opts a container in — deliberately, because the
+		// dashboard is still unauthenticated and this is the first surface
+		// that mutates anything.
+		cmdSrc = commands.New(cfg.Commands,
+			unraid.NewDockerClient(cfg.Unraid.DockerSocket), slog.Default())
 	}
 
 	root := http.NewServeMux()
-	root.Handle("/", dashboard(mon, hs, unraidSrc, webProposals(bridge)))
+	root.Handle("/", dashboard(mon, hs, unraidSrc, webProposals(bridge), webCommands(cmdSrc)))
 	if mcpHandler != nil {
 		root.Handle("/mcp", mcpHandler)
 	}

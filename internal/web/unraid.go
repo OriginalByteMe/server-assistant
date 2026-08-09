@@ -41,21 +41,24 @@ const standbyTemp = "spun down, not woken"
 // routing lives in exactly one place. ps may be nil until the real proposal
 // registry lands (another ticket) — same nil-means-absent convention as hs.
 func HandlerFull(vs ViewSource, hs HarnessSource, us core.UnraidSource, ps ProposalSource) http.Handler {
-	return buildMux(vs, hs, us, ps)
+	return buildMux(vs, hs, us, ps, nil)
 }
 
-func registerUnraidRoutes(mux *http.ServeMux, us core.UnraidSource, ps ProposalSource) {
+func registerUnraidRoutes(mux *http.ServeMux, us core.UnraidSource, ps ProposalSource, cs CommandSource) {
 	mux.HandleFunc("GET /unraid", func(w http.ResponseWriter, r *http.Request) {
-		handleUnraidPage(w, r, us, ps)
+		handleUnraidPage(w, r, us, ps, cs)
 	})
 	registerUnraidAPIRoutes(mux, us)
 	if ps != nil {
 		mux.HandleFunc("POST /api/unraid/proposals/{id}/approve", handleAPIProposalDecision(ps, ProposalSource.Approve))
 		mux.HandleFunc("POST /api/unraid/proposals/{id}/deny", handleAPIProposalDecision(ps, ProposalSource.Deny))
 	}
+	if cs != nil {
+		mux.HandleFunc("POST /api/unraid/commands/{id}/run", handleAPICommandRun(cs))
+	}
 }
 
-func handleUnraidPage(w http.ResponseWriter, r *http.Request, us core.UnraidSource, ps ProposalSource) {
+func handleUnraidPage(w http.ResponseWriter, r *http.Request, us core.UnraidSource, ps ProposalSource, cs CommandSource) {
 	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 
@@ -66,6 +69,7 @@ func handleUnraidPage(w http.ResponseWriter, r *http.Request, us core.UnraidSour
 		Shares:     sharesSectionOf(ctx, us),
 		Containers: containersSectionOf(ctx, us),
 		Proposals:  proposalRowsOf(ctx, ps),
+		Commands:   commandsSectionOf(ctx, cs),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := unraidPageTmpl.Execute(w, data); err != nil {
@@ -97,6 +101,9 @@ type unraidPageData struct {
 	// error) — the section simply doesn't render, matching the Harness
 	// panel's nil-means-absent convention.
 	Proposals []proposalRow
+	// Commands is nil with no CommandSource wired in — the panel simply
+	// doesn't render, same nil-means-absent convention as Proposals.
+	Commands *commandsSection
 }
 
 // reachView renders core.Reachability's four-way ReachState distinctly
@@ -454,6 +461,19 @@ var unraidPageTmpl = template.Must(template.New("unraid").Parse(`<!doctype html>
 <form class="inline" method="post" action="/api/unraid/proposals/{{ .ID }}/deny"><button class="btn btn-danger" type="submit">Deny</button></form>
 {{- else }}
 <p>Decision: <strong class="a-{{ .Decision }}">{{ .Decision }}</strong>{{ if .DecidedBy }} by {{ .DecidedBy }}{{ end }} at {{ .DecidedAt }}</p>
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- if .Commands }}
+<h2>Commands</h2>
+{{- if .Commands.Err }}
+<p class="err">{{ .Commands.Err }}</p>
+{{- else if not .Commands.Rows }}
+<p class="muted">No commands are configured. An operator enables them in the deployment config (deploy/docker/config.docker.yaml, commands section) — the catalog defaults to empty.</p>
+{{- else }}
+{{- range .Commands.Rows }}
+{{ template "command-row" . }}
 {{- end }}
 {{- end }}
 {{- end }}

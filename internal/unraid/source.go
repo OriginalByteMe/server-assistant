@@ -27,7 +27,7 @@ import (
 type Source struct {
 	cfg    config.UnraidConfig
 	gql    *graphqlClient
-	docker *dockerClient
+	docker *DockerClient
 	reach  *reachabilityChecker
 	log    *slog.Logger
 }
@@ -43,7 +43,7 @@ func NewSource(cfg config.UnraidConfig, dashboardAddr string, log *slog.Logger) 
 	return &Source{
 		cfg:    cfg,
 		gql:    newGraphQLClient(cfg.GraphQLURL, cfg.APIKey),
-		docker: newDockerClient(cfg.DockerSocket),
+		docker: NewDockerClient(cfg.DockerSocket),
 		reach:  newReachabilityChecker(cfg.TailscalePath, dashboardAddr),
 		log:    log,
 	}
