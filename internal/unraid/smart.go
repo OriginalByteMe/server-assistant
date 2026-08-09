@@ -54,6 +54,9 @@ type smartctlOutput struct {
 	AtaSMARTAttributes struct {
 		Table []smartctlAttr `json:"table"`
 	} `json:"ata_smart_attributes"`
+	Temperature struct {
+		Current *int `json:"current"`
+	} `json:"temperature"`
 }
 
 type smartctlAttr struct {
@@ -105,12 +108,17 @@ func runSmartctl(ctx context.Context, smartctlPath, device string) (core.SmartAt
 		})
 	}
 
+	// TemperatureCelsius is smartctl's own top-level decode
+	// ("temperature":{"current": N}), populated for every device type — see
+	// core.SmartAttrs' doc comment for why this can't live in the raw
+	// attribute table alongside Attributes.
 	return core.SmartAttrs{
-		Device:      device,
-		ModelName:   out.ModelName,
-		SerialHash:  hashSerial(out.SerialNumber),
-		Attributes:  attrs,
-		CollectedAt: time.Now(),
+		Device:             device,
+		ModelName:          out.ModelName,
+		SerialHash:         hashSerial(out.SerialNumber),
+		TemperatureCelsius: out.Temperature.Current,
+		Attributes:         attrs,
+		CollectedAt:        time.Now(),
 	}, nil
 }
 

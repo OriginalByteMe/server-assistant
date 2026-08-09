@@ -130,3 +130,70 @@ Approve → Actuate → commit-UP → `recovered` cycle, conforming to ADR
 **Proven end to end:** `make demo-e2e` passes against the live Mini Lab
 deployment with a local model (`sa-triage` on Ollama) — not mocked, not
 shadow-mode. See `docs/DEMO.md` for the runbook.
+
+## Pivot — Unraid-resident diagnostic and MCP control surface (issue #51)
+
+The product direction changed while M2 was the live milestone: Server
+Assistant is now built and shipped as an application that runs **on** the
+Unraid host itself, aggregates full system state into a dashboard for the
+human, and exposes that state plus a bounded set of mutating actions to *the
+user's own LLM* over MCP — the product contains no inference of its own. This
+section is an addition, not a rewrite: the v1/M2 history above is what was
+actually built and stays as history; this section is what the product is now.
+
+**Shipped this session, live and verified on `rijkaardserver`:**
+
+- Unraid-resident dashboard (`http://100.90.134.29:8099/unraid`) and a
+  stateless MCP endpoint (`http://100.90.134.29:8099/mcp`, 9 tools across 5
+  categories: host, storage, containers, proposals, scripts) —
+  `docker compose ps` reports `server-assistant: Up (healthy)`.
+- Key-free collectors: host vitals from `core.SourceProcfs` (`/host/proc`),
+  array/share state from `core.SourceEmhttp` (`/var/local/emhttp` INI
+  files), container state from the Docker socket, raw SMART via `smartctl`
+  device passthrough — no `unraid-api` key needed for any of it.
+- A SMART/capacity sampler (`internal/sampler`, migration `00005`) recording
+  history only where history is the signal, 90-day retention, gaps recorded
+  explicitly and never interpolated (CONVENTIONS rule 5).
+- A script registry with a mandatory dry run: an LLM may draft a script, a
+  human must review it, approval binds to a content hash (any edit returns
+  it to pending), scripts take no arguments and may never write `/boot`, and
+  a script that cannot complete a dry run cannot be approved. See ADR 0024
+  for the amended execution boundary and `prototypes/dry-run/FINDINGS.md`
+  for exactly what the dry-run sandbox can and cannot prove.
+
+**Deliberately deferred, not done:**
+
+- **Dashboard human authentication.** The dashboard and MCP endpoint run
+  unauthenticated by Noah's explicit standing decision (2026-08-09); the
+  script feature carries a visible unauthenticated warning until this lands.
+  Machine auth for the MCP endpoint has a settled target (`unraid-api` API
+  keys with roles and per-resource permissions) but that does not identify
+  *who clicked Approve* — that is the deferred piece.
+- **Tailscale Funnel.** Not enabled. `rijkaardserver` already carries the
+  `funnel` node capability and the tailnet already has HTTPS certs issued
+  (see `docs/research/mcp-reachability.md`), so turning it on later is a
+  single approved command, not an ACL edit — but it has not been run, and
+  running it exposes the dashboard/MCP surface to anyone who has or guesses
+  the public URL, gated only by the approval/hash/dry-run model, never by
+  authentication.
+- **The always-on off-box observer.** Running on a separate physical box so
+  it can observe the Host while degraded or down was the entire premise of
+  ADR 0001 and the v1/M2 work above. The pivot inverts this: the product now
+  runs *on* the Unraid host it monitors. The off-box observer becomes a
+  later, separate effort — not abandoned, just no longer this codebase's job.
+- **The full always-on monitoring spine** (probe/debounce/alert loop) is not
+  part of this milestone; only the reduced SMART/capacity sampler above
+  ships.
+
+**What the previous Mini Lab deployment is now:** the v1/M2 work above still
+runs and still passes — `make demo-e2e` against the live Mini Lab deployment
+at tag `b186868` (issue #58) — but it is the *previous* shape of the product,
+not the current one. It keeps running as a reference, and the SSH transport
+it established is retained, unused, for the later off-box observer effort.
+
+**Not a security boundary:** the docker socket this product's collectors and
+executor use is root-equivalent — mounting it does not make the container
+"isolated but capable" (the shipped `deploy/docker/docker-compose.yml` says
+so plainly). Container packaging is a distribution convenience, not a
+security boundary; what actually holds is the approval gate, hash-bound
+argument-free scripts, and the mandatory dry run (ADR 0024).

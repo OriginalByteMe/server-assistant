@@ -27,7 +27,11 @@ discipline as the Action catalog.
 
 - The harness's core promise stays absolute: blast radius is static and lives
   in reviewed code, never in LLM output — read *or* write. Guaranteed by "there
-  is no code-exec," not by the weaker "the sandbox is correct."
+  is no code-exec," not by the weaker "the sandbox is correct." (**Revised by
+  ADR 0024**: the Unraid-resident pivot allows reviewed LLM-authored scripts
+  to execute behind hash-bound human approval, no arguments, no `/boot`
+  writes, and a mandatory dry run — the prohibition here narrows to
+  *unreviewed* execution.)
 - New diagnostic capability costs a typed-tool code change, not an LLM script;
   this friction is intentional.
 - If a genuine need ever appears it requires its own hard-gated ADR; the

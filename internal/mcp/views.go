@@ -96,10 +96,11 @@ func smartView(sm core.SmartAttrs, detail bool) map[string]any {
 		rows[i] = smartAttrView(a)
 	}
 	return map[string]any{
-		"device":      sm.Device,
-		"model":       sm.ModelName,
-		"collectedAt": sm.CollectedAt,
-		"attributes":  rows,
+		"device":             sm.Device,
+		"model":              sm.ModelName,
+		"collectedAt":        sm.CollectedAt,
+		"temperatureCelsius": sm.TemperatureCelsius,
+		"attributes":         rows,
 	}
 }
 

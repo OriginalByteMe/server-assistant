@@ -76,6 +76,18 @@ func structuredError(code, reason string, alternatives ...string) ToolResult {
 	return ToolResult{Content: string(b), IsError: true}
 }
 
+// InvalidParamsError marks a Handler validation failure that must surface
+// as a genuine JSON-RPC "Invalid params" protocol error (-32602) rather
+// than a Tool Execution Error — for malformed arguments a JSON Schema
+// "required" check cannot express, e.g. get_smart_trend's hours/days
+// window (HL-SA-19). Business-logic refusals (unknown series, disk
+// standby, unauthenticated) stay Tool Execution Errors via
+// structuredError — they ran, they just failed; this is for calls that
+// never should have run as given.
+type InvalidParamsError struct{ Message string }
+
+func (e *InvalidParamsError) Error() string { return e.Message }
+
 func boolArg(args map[string]any, name string) bool {
 	v, _ := args[name].(bool)
 	return v

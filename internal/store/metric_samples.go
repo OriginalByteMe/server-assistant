@@ -92,6 +92,32 @@ func (s *Store) LatestMetricSample(ctx context.Context, series, subject string) 
 	}, nil
 }
 
+// SeriesSubject is one distinct (series, subject) pair actually present in
+// metric_samples — the read-side shape a trend consumer uses to discover
+// what it can ask Trend/LoadMetricSamples for, without guessing a series
+// name (internal/sampler owns the vocabulary; this is just what has
+// actually been recorded).
+type SeriesSubject struct {
+	Series  string
+	Subject string
+}
+
+// ListMetricSeries returns every distinct (series, subject) pair with at
+// least one recorded sample (gap rows included — a standby-skipped disk is
+// still a subject worth discovering). Small, unindexed scan: metric_samples
+// is retention-bounded (GitHub #61) and this list is not called per-tick.
+func (s *Store) ListMetricSeries(ctx context.Context) ([]SeriesSubject, error) {
+	rows, err := s.q.ListMetricSeries(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list metric series: %w", err)
+	}
+	out := make([]SeriesSubject, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SeriesSubject{Series: r.Series, Subject: r.Subject})
+	}
+	return out, nil
+}
+
 // PruneMetricSamples deletes every metric sample older than before,
 // enforcing the sampler's retention window (GitHub #61). Global rather than
 // per-subject: unlike probe_samples, every series shares one retention

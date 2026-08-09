@@ -43,6 +43,10 @@ argues against egress-by-default.
 
 - Out-of-the-box diagnosis quality is bounded by whatever local model the
   operator runs; this is deliberate and reversible by explicit opt-in.
+  (**Superseded by ADR 0025**: the product later removed the Reasoner
+  subsystem entirely — there is no inference in this codebase for this
+  decision to apply to; egress is now a client-side question outside this
+  product's control.)
 - Scrubbing is a load-bearing, testable component on the Reasoner path; its
   failure mode must be fail-closed (scrub-or-don't-send), not best-effort.
 - The egress note and ZDR guidance are surfaced exactly where the opt-in is

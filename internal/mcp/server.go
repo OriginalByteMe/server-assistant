@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -58,6 +59,11 @@ type ServerOptions struct {
 	// when set; empty serves the endpoint unauthenticated with one startup
 	// WARN. See config.MCPConfig.AuthToken for the full contract.
 	AuthToken string
+	// TrendSource, when set, backs the trends category (list_trend_series,
+	// get_smart_trend — HL-SA-19, GitHub #61's closing question). Nil
+	// simply omits the category, matching every other optional Unraid
+	// surface here (ADR 0006 rule 2).
+	TrendSource TrendSource
 }
 
 // NewServer builds the MCP surface and registers every built-in tool and
@@ -82,6 +88,9 @@ func NewServer(source core.UnraidSource, sink ProposalSink, opts ServerOptions) 
 	registerStorageTools(s, source)
 	registerContainerTools(s, source)
 	registerProposalTools(s, sink, opts.DashboardBaseURL)
+	if opts.TrendSource != nil {
+		registerTrendTools(s, opts.TrendSource)
+	}
 	registerBuiltinResources(s, source)
 	return s
 }
@@ -291,6 +300,14 @@ func (s *Server) handleToolsCall(ctx context.Context, params json.RawMessage) (j
 
 	result, err := tool.Handler(ctx, args, boolArg(args, "detail"))
 	if err != nil {
+		var ipErr *InvalidParamsError
+		if errors.As(err, &ipErr) {
+			// Malformed arguments a JSON Schema "required" check cannot
+			// express (e.g. get_smart_trend's window) are a genuine
+			// protocol Invalid params error, not a Tool Execution Error —
+			// the call itself was never valid to run.
+			return nil, &rpcError{Code: codeInvalidParams, Message: ipErr.Message}
+		}
 		// An unclassified handler error is still a Tool Execution Error,
 		// not a protocol error — the tool ran, it just failed
 		// (server/tools#error-handling).

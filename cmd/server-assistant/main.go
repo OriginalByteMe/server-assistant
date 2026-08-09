@@ -361,6 +361,9 @@ func run() error {
 		mcpSrv := mcp.NewServer(unraidSrc, bridge, mcp.ServerOptions{
 			DashboardBaseURL: cfg.MCP.DashboardBaseURL,
 			AuthToken:        cfg.MCP.AuthToken,
+			// Without this the sampler collects SMART history that nothing can
+			// read — and history is the entire point of sampling it (#61).
+			TrendSource: sampler.NewTrendSourceAdapter(smp),
 		})
 		registerScriptTools(mcpSrv, bridge, exec)
 		mcpHandler = mcpSrv.Handler()

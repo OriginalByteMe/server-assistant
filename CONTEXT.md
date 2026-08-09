@@ -75,6 +75,74 @@ evidence to justify a proposed **Action**; never changes the **Host**.
 _Avoid_: action (a Diagnosis reads, an Action mutates), probe (a Probe is one
 scheduled measurement; a Diagnosis is an on-demand multi-step investigation)
 
+**Proposal** (pivot):
+What an MCP tool creates when it drafts a script or suggests a mutating step
+for the user's own connected LLM — nothing executes and nothing mutates
+until a human reviews and approves it on the dashboard. Distinct from a
+**Grant** (the approval itself) and from the M2 **Action** (a closed typed
+verb with no author step): a Proposal can carry an entire authored script
+body.
+_Avoid_: request, action (conflates with the M2 typed-verb noun)
+
+**Grant** (pivot):
+The record of a human's approval of a specific **Proposal**, bound to a
+content hash — any edit to the proposed script invalidates it and returns
+the Proposal to pending. Grants are listable, revocable, and expiring.
+Distinct from the M2 **Approval** (a one-shot request/response over Telegram
+for a typed Action): a Grant is a standing, revocable authorization for one
+exact script body.
+_Avoid_: approval (reserved for the M2 term), permission
+
+**Dry run** (pivot):
+A mandatory, pre-**Grant** execution of a proposed script inside a sandbox
+that shims mutating binaries and logs what they were asked to do. A dry run
+is **evidence, not proof** — it cannot see inside `docker exec`, and any
+behavior the script branches on live daemon/container state can diverge
+between the sandbox's canned answer and the real host at execution time
+(see `prototypes/dry-run/FINDINGS.md`). A script that cannot complete a dry
+run cannot receive a **Grant**. The dashboard says "would do," never "will
+do."
+_Avoid_: test, simulation (implies a fidelity the sandbox does not have)
+
+**Script registry** (pivot):
+Where reviewed script bodies live, keyed by content hash, each carrying its
+**Dry run** result and **Grant** state (pending/granted/revoked/expired). A
+script accepts no arguments; the registry entry is its entire behavior
+surface.
+_Avoid_: action catalog (reserved for the M2 closed-verb list — the registry
+holds authored scripts, not typed verbs)
+
+**MCP endpoint / tool / resource** (pivot):
+The product's second face, alongside the dashboard: a Model Context Protocol
+server the operator's own LLM connects to. A **tool** is an invokable
+operation (draft a **Proposal**, list **Grant**s); a **resource** is
+read-only exposed state (host vitals, SMART trend, container list). The
+endpoint holds no model and no provider key of its own (ADR 0025) — it is a
+data and control surface only, currently unauthenticated by explicit
+standing decision.
+_Avoid_: API (too generic — MCP has its own tool/resource vocabulary), agent
+(the product runs no agent; the connecting LLM is the user's)
+
+**Reachability self-check** (pivot):
+The dashboard's own read of which of four states the MCP endpoint is
+actually in — Tailscale absent, tailnet-only, Funnel serving publicly, or
+endpoint-configured-but-failing — rather than assuming one. Same "the
+observer never lies" discipline as **Status** (ADR 0005): a wrong assumption
+here is silent and undiagnosable to the operator, so each state is tested
+independently.
+_Avoid_: health check (that's the v1 **Probe**/**Status** vocabulary for a
+different subject)
+
+**State source / provenance** (pivot):
+Every reading the collectors return carries where it came from —
+`core.SourceProcfs` (host `/proc`), `core.SourceEmhttp` (`/var/local/emhttp`
+INI files), the Docker socket, or `smartctl` device passthrough — and
+whether it is a real reading or an explicit gap. Never interpolated, never
+silently defaulted (CONVENTIONS rule 5, extended from the v1 Probe/Status
+boundary to this milestone's key-free collectors).
+_Avoid_: metric (too generic), value (loses the provenance and
+gap-vs-real distinction that's the point)
+
 ## Relationships
 
 - A **Host** runs many **Services**
@@ -108,6 +176,11 @@ scheduled measurement; a Diagnosis is an on-demand multi-step investigation)
 - The **Operator** controls the **Harness** over the same Telegram channel as
   **Approval** (single-Operator authz); a sticky, fail-closed halt is always
   available and survives restart (ADR 0020)
+- A **Proposal** requires a completed **Dry run** before it can receive a
+  **Grant**; a **Grant** binds to the Proposal's content hash and is
+  revocable/expiring; nothing in the **Script registry** executes without a
+  live, unrevoked, unexpired **Grant** matching the exact hash of what runs
+  (ADR 0024)
 
 ## Flagged ambiguities
 
@@ -118,11 +191,15 @@ scheduled measurement; a Diagnosis is an on-demand multi-step investigation)
 - "health check" / "probe" / "speed limit" / "slow" — resolved: a **Probe** is
   one raw measurement; **Status** (UP/DEGRADED/DOWN) is the derived health;
   "slow" = DEGRADED.
-- "harness" / "code execution" — resolved: the **Harness** is agentic but
-  *read-only* for **Diagnosis**; **Action** mutation is quarantined behind
-  **Approval**→Actuator; LLM-invoked mutation is forbidden, and LLM code
-  execution of *any* kind (read or write, sandboxed or not) is an explicit
-  non-goal (see ADR 0009, ADR 0012).
+- "harness" / "code execution" — resolved for the M2 Mini Lab milestone: the
+  **Harness** is agentic but *read-only* for **Diagnosis**; **Action**
+  mutation is quarantined behind **Approval**→Actuator; LLM-invoked mutation
+  is forbidden, and LLM code execution of *any* kind (read or write,
+  sandboxed or not) is an explicit non-goal (see ADR 0009, ADR 0012).
+  **Narrowed by the pivot** (ADR 0024): *unreviewed* execution is still
+  forbidden exactly as written here, but a human-reviewed, hash-bound,
+  dry-run-gated **Proposal**→**Grant** flow is now how the product's script
+  feature works — see Proposal/Grant/Dry run above.
 - "harness" was also conflated with "the LLM" and "an agent framework" —
   resolved: the **Harness** is first-party orchestration driving an external
   config-chosen model; not a third-party agent framework.

@@ -15,6 +15,11 @@ WHERE series = ? AND subject = ?
 ORDER BY sampled_at DESC, id DESC
 LIMIT 1;
 
+-- name: ListMetricSeries :many
+SELECT DISTINCT series, subject
+FROM metric_samples
+ORDER BY series ASC, subject ASC;
+
 -- name: PruneMetricSamples :exec
 DELETE FROM metric_samples
 WHERE sampled_at < ?;

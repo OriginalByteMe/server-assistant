@@ -45,6 +45,22 @@ const (
 // for. Matched by numeric ID rather than name: these five IDs are part of
 // the ATA spec itself and are reported identically across vendors, unlike
 // many vendor-specific attribute names.
+//
+// The mapping's use in sampleSMART's success-path loop below assumes a
+// tracked attribute's raw value IS the series' scalar as-is
+// (float64(a.RawValue)) — true for a counter (reallocated/pending/offline-
+// uncorrectable sector counts, power-on hours: the raw value has never
+// meant anything else) but NOT a safe assumption in general. Temperature
+// (194) is the known exception: many vendors pack current/min/max
+// temperature into one raw field, and NVMe devices report no attribute 194
+// at all — so it is deliberately skipped in that loop and handled by
+// recordSMARTTemperature instead, which reads core.SmartAttrs.
+// TemperatureCelsius (smartctl's own decode) rather than any raw value. 194
+// stays in this map anyway so a standby disk still gets an explicit gap
+// logged for the temperature series like every other tracked attribute.
+// Adding a new attribute here means assuming its raw value is the scalar as
+// reported — verify that against the vendor's raw encoding before assuming
+// it, the way this bug did not for 194.
 var smartAttrSeries = map[int]string{
 	5:   SeriesSMARTReallocatedSectors,
 	9:   SeriesSMARTPowerOnHours,
@@ -52,6 +68,23 @@ var smartAttrSeries = map[int]string{
 	197: SeriesSMARTPendingSectors,
 	198: SeriesSMARTOfflineUncorrectable,
 }
+
+// smartTemperatureAttrID is ATA attribute 194 (Temperature_Celsius). Used
+// only to exclude it from sampleSMART's generic per-attribute loop below
+// (see smartAttrSeries' comment) — its RawValue is never read for the
+// temperature series.
+const smartTemperatureAttrID = 194
+
+// minPlausibleTempC and maxPlausibleTempC bound a real drive's operating
+// temperature (vendor datasheets put safe operating range well within
+// 0-70°C; 100 gives headroom for a drive already failing on heat without
+// excluding it). A reading outside this range means the upstream decode
+// failed, not that the drive is reporting something real — see
+// recordSMARTTemperature.
+const (
+	minPlausibleTempC = 0
+	maxPlausibleTempC = 100
+)
 
 // Point is one entry in a Trend series — the read-side shape a future MCP
 // tool adapts (McpSurface owns registration; this method signature is what
@@ -175,10 +208,12 @@ func (s *Sampler) recordCapacity(ctx context.Context, series, subject string, us
 }
 
 // sampleSMART reads one disk's raw SMART attributes and records the
-// baseline set (smartAttrSeries). On core.ErrDiskStandby it records one
-// explicit gap row per tracked attribute and returns — SmartFor is called
-// exactly once; there is no retry, no forced read, no wake (GitHub #61's
-// governing constraint).
+// baseline set (smartAttrSeries), plus temperature separately via
+// recordSMARTTemperature since it is not a raw-value counter (see
+// smartAttrSeries' comment). On core.ErrDiskStandby it records one explicit
+// gap row per tracked attribute and returns — SmartFor is called exactly
+// once; there is no retry, no forced read, no wake (GitHub #61's governing
+// constraint).
 func (s *Sampler) sampleSMART(ctx context.Context, d core.Disk, now time.Time) {
 	attrs, err := s.source.SmartFor(ctx, d.Device)
 	if err != nil {
@@ -187,15 +222,14 @@ func (s *Sampler) sampleSMART(ctx context.Context, d core.Disk, now time.Time) {
 			s.logger.Error("sampler: read smart attrs", "device", d.Device, "error", err)
 		}
 		for _, series := range smartAttrSeries {
-			if rerr := s.store.RecordMetricSample(ctx, store.MetricSample{
-				Series: series, Subject: d.Device, OK: false, Note: note, SampledAt: now,
-			}); rerr != nil {
-				s.logger.Error("sampler: record smart gap", "device", d.Device, "series", series, "error", rerr)
-			}
+			s.recordSMARTGap(ctx, series, d.Device, note, now)
 		}
 		return
 	}
 	for _, a := range attrs.Attributes {
+		if a.ID == smartTemperatureAttrID {
+			continue // handled separately by recordSMARTTemperature below
+		}
 		series, tracked := smartAttrSeries[a.ID]
 		if !tracked {
 			continue
@@ -206,6 +240,48 @@ func (s *Sampler) sampleSMART(ctx context.Context, d core.Disk, now time.Time) {
 		}); err != nil {
 			s.logger.Error("sampler: record smart attr", "device", d.Device, "series", series, "error", err)
 		}
+	}
+	s.recordSMARTTemperature(ctx, attrs, d.Device, now)
+}
+
+// recordSMARTTemperature records the temperature series for one disk from
+// core.SmartAttrs.TemperatureCelsius — smartctl's own decoded reading,
+// never attribute 194's raw value (which many vendors pack with min/max
+// into one field, and which NVMe devices don't report at all; see
+// core.SmartAttrs' doc comment and GitHub #61's follow-up). Nil (device
+// reported none) or a value outside minPlausibleTempC..maxPlausibleTempC
+// records an explicit gap and logs at WARN instead of storing a value: a
+// missing temperature is honest, a wrong one is not (CONVENTIONS rule 5).
+// This bound is the guard that would have caught the original bug — a
+// packed raw value read as a plain scalar lands nowhere near 0-100.
+func (s *Sampler) recordSMARTTemperature(ctx context.Context, attrs core.SmartAttrs, device string, now time.Time) {
+	if attrs.TemperatureCelsius == nil {
+		s.recordSMARTGap(ctx, SeriesSMARTTemperature, device, "device reported no temperature", now)
+		return
+	}
+	celsius := float64(*attrs.TemperatureCelsius)
+	if celsius < minPlausibleTempC || celsius > maxPlausibleTempC {
+		s.logger.Warn("sampler: smart temperature out of plausible range, recording gap",
+			"device", device, "celsius", celsius)
+		s.recordSMARTGap(ctx, SeriesSMARTTemperature, device, "reported value outside plausible range (0-100C)", now)
+		return
+	}
+	if err := s.store.RecordMetricSample(ctx, store.MetricSample{
+		Series: SeriesSMARTTemperature, Subject: device, Value: &celsius, OK: true, SampledAt: now,
+	}); err != nil {
+		s.logger.Error("sampler: record smart temperature", "device", device, "error", err)
+	}
+}
+
+// recordSMARTGap records one explicit gap row for a SMART series/subject —
+// shared by sampleSMART's standby path and recordSMARTTemperature's
+// missing/out-of-range path so both express "deliberately skipped"
+// identically (CONVENTIONS rule 5: never omit, never interpolate).
+func (s *Sampler) recordSMARTGap(ctx context.Context, series, subject, note string, now time.Time) {
+	if err := s.store.RecordMetricSample(ctx, store.MetricSample{
+		Series: series, Subject: subject, OK: false, Note: note, SampledAt: now,
+	}); err != nil {
+		s.logger.Error("sampler: record smart gap", "device", subject, "series", series, "error", err)
 	}
 }
 

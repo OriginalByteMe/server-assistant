@@ -143,3 +143,93 @@ func TestSampler_ArrayStateOnlyRecordsOnTransition(t *testing.T) {
 	require.Len(t, points, 2, "a real transition must record a new row")
 	require.Equal(t, "STOPPED", *points[1].Text)
 }
+
+func tempPtr(v int) *int { return &v }
+
+// The temperature series must come from core.SmartAttrs.TemperatureCelsius
+// (smartctl's own decode), never from attribute 194's raw value — even
+// when a packed raw value for 194 is present in Attributes, as it always
+// is on this host's Seagate disks.
+func TestSampler_TemperatureUsesDecodedFieldNotRawAttribute(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	src := &fakeSource{
+		array: core.ArrayState{Disks: []core.Disk{{Name: "disk1", Device: "/dev/sdb", Role: "data"}}},
+		smart: core.SmartAttrs{
+			TemperatureCelsius: tempPtr(39),
+			Attributes:         []core.SmartAttr{{ID: 194, Name: "Temperature_Celsius", RawValue: 90194313255}},
+		},
+	}
+	s := New(src, st, time.Hour, 90*24*time.Hour, nil)
+
+	s.sampleOnce(ctx)
+
+	points, err := s.Trend(ctx, SeriesSMARTTemperature, "/dev/sdb", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.True(t, points[0].OK)
+	require.Equal(t, 39.0, *points[0].Value, "must be the decoded field, not the packed raw attribute value")
+}
+
+// An NVMe-shaped read (no attribute 194 at all) must still record the real
+// decoded temperature, not a gap and not a fabricated 0°C.
+func TestSampler_NVMeTemperatureWithoutAttribute194StoresRealValue(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	src := &fakeSource{
+		array: core.ArrayState{Disks: []core.Disk{{Name: "nvme0", Device: "/dev/nvme0n1", Role: "cache"}}},
+		smart: core.SmartAttrs{TemperatureCelsius: tempPtr(35)}, // Attributes deliberately empty
+	}
+	s := New(src, st, time.Hour, 90*24*time.Hour, nil)
+
+	s.sampleOnce(ctx)
+
+	points, err := s.Trend(ctx, SeriesSMARTTemperature, "/dev/nvme0n1", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.True(t, points[0].OK, "a real decoded temperature must never be dropped to a gap")
+	require.Equal(t, 35.0, *points[0].Value)
+	require.NotEqual(t, 0.0, *points[0].Value, "must never fabricate 0°C for a device with no attribute 194")
+}
+
+// A device reporting no temperature at all (nil TemperatureCelsius) must
+// record an explicit gap, never a fabricated value.
+func TestSampler_NoTemperatureReportedRecordsGap(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	src := &fakeSource{
+		array: core.ArrayState{Disks: []core.Disk{{Name: "disk1", Device: "/dev/sdz", Role: "data"}}},
+		smart: core.SmartAttrs{TemperatureCelsius: nil},
+	}
+	s := New(src, st, time.Hour, 90*24*time.Hour, nil)
+
+	s.sampleOnce(ctx)
+
+	points, err := s.Trend(ctx, SeriesSMARTTemperature, "/dev/sdz", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.False(t, points[0].OK)
+	require.Nil(t, points[0].Value)
+}
+
+// A decoded temperature outside the plausible 0-100°C range means the
+// upstream decode failed — this is the guard that would have caught the
+// original bug. It must record a gap, never store the implausible number.
+func TestSampler_ImplausibleTemperatureRecordsGapNotValue(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	src := &fakeSource{
+		array: core.ArrayState{Disks: []core.Disk{{Name: "disk1", Device: "/dev/sdy", Role: "data"}}},
+		smart: core.SmartAttrs{TemperatureCelsius: tempPtr(9019431)}, // clearly not a real drive temperature
+	}
+	s := New(src, st, time.Hour, 90*24*time.Hour, nil)
+
+	s.sampleOnce(ctx)
+
+	points, err := s.Trend(ctx, SeriesSMARTTemperature, "/dev/sdy", time.Now().Add(-time.Hour), time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.False(t, points[0].OK, "an implausible decode must record a gap, not a value")
+	require.Nil(t, points[0].Value)
+	require.Contains(t, points[0].Note, "range")
+}

@@ -137,11 +137,20 @@ type Container struct {
 // history is the signal (GitHub #61). "Reallocated sectors: 8" means nothing
 // alone and a great deal next to "was 0 last week".
 type SmartAttrs struct {
-	Device      string
-	ModelName   string
-	SerialHash  string // hashed, never the raw serial: it is identifying
-	Attributes  []SmartAttr
-	CollectedAt time.Time
+	Device     string
+	ModelName  string
+	SerialHash string // hashed, never the raw serial: it is identifying
+	// TemperatureCelsius is smartctl's own decoded reading, nil when the
+	// device did not report one. It exists as its own field because the raw
+	// attribute table cannot carry it honestly: ATA attribute 194 packs
+	// current, min and max into one 48-bit raw value on many drives, so
+	// reading it as a scalar yields nonsense like 90194313256 instead of 39,
+	// and NVMe devices have no attribute 194 at all despite reporting a
+	// perfectly good temperature. Letting smartctl do the drive-specific
+	// decoding is strictly better than re-deriving it here.
+	TemperatureCelsius *int
+	Attributes         []SmartAttr
+	CollectedAt        time.Time
 }
 
 // SmartAttr is one SMART attribute row.

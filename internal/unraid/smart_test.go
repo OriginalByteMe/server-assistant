@@ -171,3 +171,78 @@ func TestHashSerial_Deterministic(t *testing.T) {
 	assert.Len(t, h1, 16)
 	assert.NotContains(t, h1, "WD-ABC123")
 }
+
+// TestRunSmartctl_PrefersTopLevelTemperatureCurrent covers the actual bug:
+// on this host, Seagate Barracuda disks report attribute 194's raw value as
+// a packed current/min/max field (~90194313255 for a 39°C drive — the exact
+// pattern observed live via `docker exec ... smartctl -j /dev/sdb`).
+// TemperatureCelsius must come from smartctl's own top-level decode, and
+// the raw attribute table must be left exactly as reported — never
+// rewritten in place.
+func TestRunSmartctl_PrefersTopLevelTemperatureCurrent(t *testing.T) {
+	body := `{
+		"smartctl": {"exit_status": 0},
+		"model_name": "TEST-PACKED",
+		"serial_number": "SN1",
+		"ata_smart_attributes": {
+			"table": [
+				{"id": 194, "name": "Temperature_Celsius", "value": 39, "worst": 50, "thresh": 0, "raw": {"value": 90194313255}}
+			]
+		},
+		"temperature": {"current": 39}
+	}`
+	path := fakeSmartctlAssertingStandby(t, body)
+
+	attrs, err := runSmartctl(context.Background(), path, "/dev/sdX")
+	require.NoError(t, err)
+
+	require.NotNil(t, attrs.TemperatureCelsius, "smartctl's own decode must be surfaced")
+	assert.Equal(t, 39, *attrs.TemperatureCelsius)
+
+	require.Len(t, attrs.Attributes, 1)
+	assert.Equal(t, int64(90194313255), attrs.Attributes[0].RawValue,
+		"the raw attribute table must be reported exactly as smartctl sent it, never rewritten")
+}
+
+// TestRunSmartctl_NoTemperatureField covers a device that reports no
+// top-level temperature at all: TemperatureCelsius must stay nil, never a
+// fabricated zero.
+func TestRunSmartctl_NoTemperatureField(t *testing.T) {
+	body := `{
+		"smartctl": {"exit_status": 0},
+		"model_name": "TEST-NOTEMP",
+		"serial_number": "SN2",
+		"ata_smart_attributes": {
+			"table": [
+				{"id": 5, "name": "Reallocated_Sector_Ct", "value": 100, "worst": 100, "thresh": 0, "raw": {"value": 0}}
+			]
+		}
+	}`
+	path := fakeSmartctlAssertingStandby(t, body)
+
+	attrs, err := runSmartctl(context.Background(), path, "/dev/sdX")
+	require.NoError(t, err)
+	assert.Nil(t, attrs.TemperatureCelsius)
+}
+
+// TestRunSmartctl_NVMeShapeDecodesTemperatureWithoutAttribute194 covers an
+// NVMe device (confirmed live via /dev/nvme0n1: no ata_smart_attributes at
+// all, but a top-level "temperature":{"current": N} same as ATA devices).
+// TemperatureCelsius must still decode correctly with no attribute 194
+// present anywhere in Attributes.
+func TestRunSmartctl_NVMeShapeDecodesTemperatureWithoutAttribute194(t *testing.T) {
+	body := `{
+		"smartctl": {"exit_status": 0},
+		"model_name": "TEST-NVME",
+		"serial_number": "SN3",
+		"temperature": {"current": 35}
+	}`
+	path := fakeSmartctlAssertingStandby(t, body)
+
+	attrs, err := runSmartctl(context.Background(), path, "/dev/sdX")
+	require.NoError(t, err)
+
+	require.NotNil(t, attrs.TemperatureCelsius)
+	assert.Equal(t, 35, *attrs.TemperatureCelsius)
+	assert.Empty(t, attrs.Attributes, "an NVMe device reports no ATA attribute table at all")
+}
