@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"server-assistant/internal/core"
@@ -33,30 +34,54 @@ type Server struct {
 	source           core.UnraidSource
 	sink             ProposalSink
 	dashboardBaseURL string
-	tools            map[string]Tool
-	toolOrder        []string
-	resources        map[string]Resource
-	resourceOrder    []string
+	// authToken is the configured HL-SA-17 bearer secret; empty means the
+	// endpoint serves unauthenticated. See config.MCPConfig.AuthToken for
+	// the full contract and ServerOptions for how it arrives here.
+	authToken     string
+	tools         map[string]Tool
+	toolOrder     []string
+	resources     map[string]Resource
+	resourceOrder []string
+}
+
+// ServerOptions groups NewServer's per-deployment string knobs. Named
+// fields — rather than a growing positional list of same-typed strings —
+// so a caller cannot transpose DashboardBaseURL and AuthToken at the call
+// site; the compiler enforces nothing about that on its own (both are
+// plain strings), so the field names have to.
+type ServerOptions struct {
+	// DashboardBaseURL is stitched into the initialize handshake's
+	// instructions and get_proposal's not-configured message; empty is
+	// valid and simply omits both.
+	DashboardBaseURL string
+	// AuthToken gates every request behind `Authorization: Bearer <token>`
+	// when set; empty serves the endpoint unauthenticated with one startup
+	// WARN. See config.MCPConfig.AuthToken for the full contract.
+	AuthToken string
 }
 
 // NewServer builds the MCP surface and registers every built-in tool and
 // resource (HL-SA-17) against source. sink is the mutating-call seam (B3)
 // — pass NoopProposalSink{} until HL-SA-18's grant model is wired in.
-// dashboardBaseURL is stitched into the initialize handshake's
-// instructions and get_proposal's not-configured message; empty is valid
-// and simply omits both.
-func NewServer(source core.UnraidSource, sink ProposalSink, dashboardBaseURL string) *Server {
+func NewServer(source core.UnraidSource, sink ProposalSink, opts ServerOptions) *Server {
 	s := &Server{
 		source:           source,
 		sink:             sink,
-		dashboardBaseURL: dashboardBaseURL,
+		dashboardBaseURL: opts.DashboardBaseURL,
+		authToken:        opts.AuthToken,
 		tools:            map[string]Tool{},
 		resources:        map[string]Resource{},
+	}
+	if s.authToken == "" {
+		// Fires exactly once, at construction (the daemon builds one
+		// *Server for its lifetime) — never silent (CONVENTIONS rule 5).
+		slog.Warn("MCP endpoint is unauthenticated: mcp.auth_token is not configured, so every request is served with no credential check. " +
+			"This is a development-mode default (Noah's standing decision, 2026-08-09) — set mcp.auth_token (env-resolved via ${VAR}, see docs/DEPLOY-UNRAID.md) to require Authorization: Bearer <token>.")
 	}
 	registerHostTools(s, source)
 	registerStorageTools(s, source)
 	registerContainerTools(s, source)
-	registerProposalTools(s, sink, dashboardBaseURL)
+	registerProposalTools(s, sink, opts.DashboardBaseURL)
 	registerBuiltinResources(s, source)
 	return s
 }
@@ -87,6 +112,13 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	// Checked before anything else, including the method allow-list below,
+	// so an unauthenticated GET reveals nothing more than an
+	// unauthenticated POST would (HL-SA-17).
+	if s.authToken != "" && !s.checkAuth(r) {
+		s.writeUnauthorized(w)
+		return
+	}
 	if r.Method != http.MethodPost {
 		// Streamable HTTP requires the endpoint to accept GET too, but
 		// explicitly permits answering "no SSE stream here" with 405

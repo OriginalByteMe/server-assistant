@@ -358,7 +358,10 @@ func run() error {
 			unraidPrecondition{src: unraidSrc, timeout: cfg.Unraid.DockerTimeout()})
 		bridge = &proposalBridge{reg: reg, store: scriptStore, dashboardURL: cfg.MCP.DashboardBaseURL}
 
-		mcpSrv := mcp.NewServer(unraidSrc, bridge, cfg.MCP.DashboardBaseURL)
+		mcpSrv := mcp.NewServer(unraidSrc, bridge, mcp.ServerOptions{
+			DashboardBaseURL: cfg.MCP.DashboardBaseURL,
+			AuthToken:        cfg.MCP.AuthToken,
+		})
 		registerScriptTools(mcpSrv, bridge, exec)
 		mcpHandler = mcpSrv.Handler()
 		slog.Info("mcp endpoint enabled", "path", "/mcp")

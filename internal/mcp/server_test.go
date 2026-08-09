@@ -48,7 +48,7 @@ func (f *fakeSource) Reachability(context.Context) (core.Reachability, error) {
 var _ core.UnraidSource = (*fakeSource)(nil)
 
 func newTestServer(src core.UnraidSource) *Server {
-	return NewServer(src, NoopProposalSink{}, "")
+	return NewServer(src, NoopProposalSink{}, ServerOptions{})
 }
 
 // rpcCall POSTs one JSON-RPC request through the handler and returns the

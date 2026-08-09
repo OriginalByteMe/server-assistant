@@ -275,6 +275,10 @@ func (c *Config) resolveSecrets() error {
 	}
 	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
 	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
+	// auth_token is a secret — resolved like every other ${VAR} field
+	// (rule 7); empty is valid and simply serves the MCP endpoint
+	// unauthenticated (HL-SA-17).
+	c.MCP.AuthToken = r.expand(c.MCP.AuthToken)
 	if c.Unraid != nil {
 		c.Unraid.GraphQLURL = r.expand(c.Unraid.GraphQLURL)
 		c.Unraid.APIKey = r.expand(c.Unraid.APIKey)

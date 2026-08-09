@@ -28,7 +28,28 @@ func runLines(t *testing.T, input string, srv *httptest.Server) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := run(ctx, strings.NewReader(input), &stdout, testLogger(), srv.Client(), srv.URL, 2*time.Second)
+	err := run(ctx, strings.NewReader(input), &stdout, testLogger(), srv.Client(), srv.URL, 2*time.Second, "")
+	if err != nil {
+		t.Fatalf("run() returned error: %v", err)
+	}
+
+	out := stdout.String()
+	if out == "" {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	return lines
+}
+
+// runLinesWithToken is runLines but forwards token to run(), for the
+// bearer-auth-specific cases below.
+func runLinesWithToken(t *testing.T, input string, srv *httptest.Server, token string) []string {
+	t.Helper()
+	var stdout bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := run(ctx, strings.NewReader(input), &stdout, testLogger(), srv.Client(), srv.URL, 2*time.Second, token)
 	if err != nil {
 		t.Fatalf("run() returned error: %v", err)
 	}
@@ -129,7 +150,7 @@ func TestTransportErrorProducesWellFormedJSONRPCError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := run(ctx, strings.NewReader(`{"jsonrpc":"2.0","id":"abc","method":"ping","params":{}}`+"\n"), &stdout, testLogger(), http.DefaultClient, badURL, 2*time.Second)
+	err := run(ctx, strings.NewReader(`{"jsonrpc":"2.0","id":"abc","method":"ping","params":{}}`+"\n"), &stdout, testLogger(), http.DefaultClient, badURL, 2*time.Second, "")
 	if err != nil {
 		t.Fatalf("run() returned error: %v", err)
 	}
@@ -184,4 +205,89 @@ func jsonBody(r *http.Request) (map[string]json.RawMessage, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+func TestNoToken_NoAuthorizationHeaderSent(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`)
+	}))
+	defer srv.Close()
+
+	runLines(t, `{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}`+"\n", srv)
+	if gotAuth != "" {
+		t.Errorf("Authorization header sent with no token configured: %q", gotAuth)
+	}
+}
+
+func TestTokenConfigured_SendsAuthorizationHeader(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`)
+	}))
+	defer srv.Close()
+
+	runLinesWithToken(t, `{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}`+"\n", srv, "s3cret-shim-token")
+	if want := "Bearer s3cret-shim-token"; gotAuth != want {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
+	}
+}
+
+func TestUpstream401_ProducesWellFormedJSONRPCErrorOnStdout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"unauthorized: missing or invalid bearer token"}}`)
+	}))
+	defer srv.Close()
+
+	lines := runLinesWithToken(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n", srv, "wrong-token")
+	if len(lines) != 1 {
+		t.Fatalf("want exactly 1 output line, got %d: %q", len(lines), lines)
+	}
+	var resp struct {
+		Error *rpcErrorObj `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &resp); err != nil {
+		t.Fatalf("output is not valid JSON-RPC: %v (line: %q)", err, lines[0])
+	}
+	if resp.Error == nil {
+		t.Fatalf("want a JSON-RPC error object for a 401 upstream response, got %q", lines[0])
+	}
+}
+
+// TestTokenNeverAppearsInShimLogsOrStdout exercises both the
+// header-attached success path and the upstream-401-error-logging path
+// (handleLine logs the response status/body on non-2xx) with a real
+// configured token, and proves it never leaks onto stderr (the logger) or
+// stdout.
+func TestTokenNeverAppearsInShimLogsOrStdout(t *testing.T) {
+	const token = "super-secret-shim-token-should-never-leak"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Fprint(w, `{"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"unauthorized: missing or invalid bearer token"}}`)
+	}))
+	defer srv.Close()
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+
+	var stdout bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := run(ctx, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`+"\n"), &stdout, logger, srv.Client(), srv.URL, 2*time.Second, token); err != nil {
+		t.Fatalf("run() returned error: %v", err)
+	}
+
+	if strings.Contains(logBuf.String(), token) {
+		t.Errorf("token leaked into shim logs: %s", logBuf.String())
+	}
+	if strings.Contains(stdout.String(), token) {
+		t.Errorf("token leaked onto stdout: %s", stdout.String())
+	}
 }

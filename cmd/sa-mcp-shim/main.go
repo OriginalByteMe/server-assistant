@@ -70,6 +70,7 @@ type rpcErrorResponse struct {
 func main() {
 	endpoint := flag.String("endpoint", envOr("SA_MCP_ENDPOINT", defaultEndpoint), "MCP HTTP endpoint to relay to")
 	timeout := flag.Duration("timeout", defaultTimeout, "per-request HTTP timeout")
+	token := flag.String("token", envOr("SA_MCP_TOKEN", ""), "bearer token sent as Authorization: Bearer <token> (or SA_MCP_TOKEN); omit if the endpoint is unauthenticated")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -78,9 +79,11 @@ func main() {
 	defer stop()
 
 	client := &http.Client{}
-	logger.Info("sa-mcp-shim starting", "endpoint", *endpoint, "timeout", timeout.String())
+	// Log only whether a token is configured, never its value (CONVENTIONS
+	// rule 8 — HL-SA-17).
+	logger.Info("sa-mcp-shim starting", "endpoint", *endpoint, "timeout", timeout.String(), "auth_configured", *token != "")
 
-	if err := run(ctx, os.Stdin, os.Stdout, logger, client, *endpoint, *timeout); err != nil && !errors.Is(err, context.Canceled) {
+	if err := run(ctx, os.Stdin, os.Stdout, logger, client, *endpoint, *timeout, *token); err != nil && !errors.Is(err, context.Canceled) {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
@@ -97,7 +100,7 @@ func envOr(key, fallback string) string {
 // run drives the core stdio<->HTTP loop. It is the unit under test: stdin,
 // stdout and the HTTP client are all injected so tests never touch a real
 // process or network.
-func run(ctx context.Context, stdin io.Reader, stdout io.Writer, logger *slog.Logger, client *http.Client, endpoint string, timeout time.Duration) error {
+func run(ctx context.Context, stdin io.Reader, stdout io.Writer, logger *slog.Logger, client *http.Client, endpoint string, timeout time.Duration, token string) error {
 	lines := make(chan string)
 	scanDone := make(chan error, 1)
 
@@ -129,7 +132,7 @@ func run(ctx context.Context, stdin io.Reader, stdout io.Writer, logger *slog.Lo
 			if !ok {
 				return <-scanDone
 			}
-			handleLine(ctx, line, out, logger, client, endpoint, timeout)
+			handleLine(ctx, line, out, logger, client, endpoint, timeout, token)
 			if err := out.Flush(); err != nil {
 				return fmt.Errorf("flush stdout: %w", err)
 			}
@@ -141,7 +144,7 @@ func run(ctx context.Context, stdin io.Reader, stdout io.Writer, logger *slog.Lo
 // caller: every failure mode either produces a JSON-RPC error line (for a
 // request the client is waiting on) or a stderr log entry (for a
 // notification, which gets no response either way).
-func handleLine(ctx context.Context, line string, out *bufio.Writer, logger *slog.Logger, client *http.Client, endpoint string, timeout time.Duration) {
+func handleLine(ctx context.Context, line string, out *bufio.Writer, logger *slog.Logger, client *http.Client, endpoint string, timeout time.Duration, token string) {
 	id, isNotification, parseErr := extractID(line)
 	if parseErr != nil {
 		// Malformed JSON: per JSON-RPC 2.0, a parse error response always
@@ -165,6 +168,11 @@ func handleLine(ctx context.Context, line string, out *bufio.Writer, logger *slo
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	if token != "" {
+		// Never logged — only ever placed on the outbound request
+		// (CONVENTIONS rule 8, HL-SA-17).
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

@@ -99,12 +99,66 @@ Both forms work with `SA_MCP_ENDPOINT` in `env` instead of `-endpoint` in
 }
 ```
 
+### Optional: bearer-token auth (HL-SA-17)
+
+The MCP endpoint is unauthenticated by default (Noah's standing decision:
+development proceeds unauthenticated) — nothing below is required until
+`mcp.auth_token` is set on the server. When it is, every request must carry
+`Authorization: Bearer <token>`; a missing or wrong token gets HTTP 401 and
+the response is identical either way, by design (`internal/mcp/auth.go`).
+
+**Direct HTTP route** — add the header to every request:
+
+```
+curl -X POST http://100.90.134.29:8099/mcp \
+  -H "Authorization: Bearer <token>" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+**Stdio shim route** — pass `-token` or `SA_MCP_TOKEN`, the same shape as
+`-endpoint`/`SA_MCP_ENDPOINT` above:
+
+```json
+{
+  "mcpServers": {
+    "server-assistant": {
+      "command": "/home/noahr/Projects/server-assistant/bin/sa-mcp-shim",
+      "args": ["-endpoint", "http://100.90.134.29:8099/mcp", "-token", "<token>"]
+    }
+  }
+}
+```
+
+or via `env`, keeping the token out of `args` (and so out of `ps` output on
+shared machines):
+
+```json
+{
+  "mcpServers": {
+    "server-assistant": {
+      "command": "/home/noahr/Projects/server-assistant/bin/sa-mcp-shim",
+      "env": {
+        "SA_MCP_ENDPOINT": "http://100.90.134.29:8099/mcp",
+        "SA_MCP_TOKEN": "<token>"
+      }
+    }
+  }
+}
+```
+
+The shim never logs the token — only whether one is configured
+(`"auth_configured": true/false` in its startup log line) — and forwards a
+401 from the server as a normal JSON-RPC error on stdout, never a crash.
+
 ### 3. What the shim does and doesn't do
 
 - Reads newline-delimited JSON-RPC from stdin, POSTs each message verbatim to
   `-endpoint`/`SA_MCP_ENDPOINT` (default `http://100.90.134.29:8099/mcp`),
   writes the HTTP response back to stdout as one line. No business logic —
   every real answer still comes from the server.
+- When `-token`/`SA_MCP_TOKEN` is set, attaches it as `Authorization: Bearer
+  <token>` to every relayed request; unset, no header is sent (matching an
+  unauthenticated server).
 - Never writes anything but protocol JSON to stdout; every log line goes to
   stderr, so a client's stdio session is never corrupted by a stray byte.
 - Requires your machine to already be able to reach the endpoint — join the

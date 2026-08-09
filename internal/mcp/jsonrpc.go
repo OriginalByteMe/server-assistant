@@ -75,4 +75,9 @@ const (
 	codeInvalidParams    = -32602
 	codeInternalError    = -32603
 	codeResourceNotFound = -32002
+	// codeUnauthorized answers a missing or incorrect bearer token
+	// (HL-SA-17) — same reserved server-error range (-32000..-32099,
+	// JSON-RPC 2.0) as codeResourceNotFound above; -32001 is otherwise
+	// unused by this server.
+	codeUnauthorized = -32001
 )

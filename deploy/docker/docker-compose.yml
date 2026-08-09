@@ -46,6 +46,12 @@ services:
     # block above), it just avoids running the process as root for no benefit.
     group_add:
       - "281"
+      # HL-SA-19: gid 6 = "disk" on rijkaardserver (getent group disk),
+      # owner of the /dev/sdX and /dev/nvme0n1 device nodes mounted below
+      # (root:disk 0660). The non-root server-assistant user needs this
+      # group to open them at all — device passthrough alone is not
+      # enough, the node's own permission bits still gate the read.
+      - "6"
     # The dry-run executor builds its sandbox with `unshare --user --mount
     # --net`. Docker's DEFAULT seccomp profile blocks that syscall, so without
     # this every dry run fails, and because "a script with no working dry run
@@ -89,6 +95,32 @@ services:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
       - ./config.docker.yaml:/etc/server-assistant/config.yaml:ro
       - server-assistant-data:/var/lib/server-assistant
+    # HL-SA-19: raw block devices for smartctl -n standby (SmartFor).
+    # Explicit device list, not privileged: true — verified live against
+    # rijkaardserver (`ls -la /dev/sd? /dev/nvme0n1`; disks.ini device=
+    # fields) rather than trusted from an older doc, since device letters
+    # move. Re-verify here if this stack is ever redeployed against a host
+    # where the array has been reconfigured.
+    devices:
+      - /dev/sdb:/dev/sdb
+      - /dev/sdc:/dev/sdc
+      - /dev/sdd:/dev/sdd
+      - /dev/nvme0n1:/dev/nvme0n1
+    # HL-SA-19: proven required, not assumed. `smartctl -n standby`
+    # issues SG_IO ioctls to the ATA disks and NVME_IOCTL_ADMIN_CMD to
+    # the NVMe cache drive; both return EPERM without SYS_RAWIO / SYS_ADMIN
+    # respectively — even as root, even with the device node's own group
+    # permission satisfied, since this is a kernel check independent of
+    # file mode. Confirmed live via `strace`: `ioctl(3, SG_IO, ...) = -1
+    # EPERM` without the capability, real SMART data with it; NVMe fails
+    # identically without SYS_ADMIN. Combined with the Dockerfile's
+    # `setcap cap_sys_rawio,cap_sys_admin=+ep` on the smartctl binary, the
+    # non-root server-assistant user (not root) gets exactly these two
+    # capabilities for exactly this one binary — the container-level
+    # grant alone is not sufficient for a non-root process to use them.
+    cap_add:
+      - SYS_RAWIO
+      - SYS_ADMIN
     environment:
       # Never bake a real key into the image or commit it in this file
       # (CONVENTIONS rule 7). Provide it in a sibling `.env`
@@ -98,6 +130,15 @@ services:
       # form fails the whole `up` fast with a clear message if it's unset,
       # rather than starting a container that can never authenticate.
       UNRAID_API_KEY: "${UNRAID_API_KEY:?set UNRAID_API_KEY in deploy/docker/.env — see docs/DEPLOY-UNRAID.md}"
+      # HL-SA-17: optional MCP bearer-auth secret. Unlike UNRAID_API_KEY
+      # above this uses a `:-` (not `:?`) default — empty is a valid,
+      # supported state (Noah's standing decision: development proceeds
+      # unauthenticated) rather than a startup failure. Set a strong
+      # random value in deploy/docker/.env (e.g. `openssl rand -hex 32`)
+      # to require `Authorization: Bearer <token>` on the MCP endpoint;
+      # leave unset/empty to keep it open, per config.docker.yaml's
+      # mcp.auth_token and internal/mcp's startup WARN either way.
+      SA_MCP_AUTH_TOKEN: "${SA_MCP_AUTH_TOKEN:-}"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
       interval: 30s

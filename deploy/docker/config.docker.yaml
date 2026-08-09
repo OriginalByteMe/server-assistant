@@ -32,14 +32,13 @@ unraid:
   api_key: "${UNRAID_API_KEY}"
   docker_socket: /var/run/docker.sock
   # smartctl_path/*_timeout knobs are left at internal/config/unraid.go's
-  # defaults. NOTE: this container mounts only /var/local/emhttp and the
-  # Docker socket (docker-compose.yml) — no raw block devices are passed
-  # through, so smartctl reads issued from inside this container cannot see
-  # /dev/sdX and will fail closed (ADR "the observer never lies": a real
-  # error surfaces, never a fabricated zero). Raw SMART attribute collection
-  # from this deployment shape is an open item for #52's later actuation
-  # work, not something this packaging ticket adds device passthrough or
-  # --privileged for.
+  # defaults; smartmontools is installed and the real array disks
+  # (/dev/sdb, /dev/sdc, /dev/sdd, /dev/nvme0n1 — verify live, letters
+  # move) are passed through explicitly in docker-compose.yml's `devices:`
+  # (HL-SA-19), plus `group_add: "6"` (host "disk" group) so the non-root
+  # server-assistant user can open the device nodes at all. `-n standby`
+  # is hardcoded in internal/unraid/smart.go regardless of this config —
+  # a disk asleep is skipped, never woken, no matter how it's reached.
 
 # The MCP endpoint stitches this into the initialize handshake and into the
 # dashboard_url a mutating tool fast-returns (GitHub #57 decision B3), so the
@@ -50,3 +49,12 @@ unraid:
 # human-approved step, docs/DEPLOY-UNRAID.md).
 mcp:
   dashboard_base_url: "http://100.90.134.29:8099"
+  # Optional bearer-auth secret (HL-SA-17) — resolved from the environment
+  # exactly like unraid.api_key above, sourced from docker-compose.yml's
+  # SA_MCP_AUTH_TOKEN passthrough. Empty/unset is a supported, deliberate
+  # state: the endpoint then serves unauthenticated and logs a startup WARN
+  # (Noah's standing decision that development proceeds unauthenticated).
+  # This is a shared-secret stand-in for issue #60's settled end state
+  # (unraid-api API keys with roles/permissions) — see
+  # internal/config/mcp.go's AuthToken doc for the exact swap seam.
+  auth_token: "${SA_MCP_AUTH_TOKEN}"

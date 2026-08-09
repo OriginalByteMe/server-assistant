@@ -54,10 +54,30 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 # boundary that actually holds for this stack is the human Approval gate,
 # hash-bound argument-free scripts, and the mandatory dry run (see
 # docker-compose.yml), not how minimal the base image is.
+# HL-SA-19: smartctl needs raw ioctls on the passed-through devices to
+# read real SMART data (docker-compose.yml's `devices:`) — SG_IO for the
+# ATA disks, NVME_IOCTL_ADMIN_CMD for the NVMe cache drive. Both return
+# EPERM without CAP_SYS_RAWIO / CAP_SYS_ADMIN respectively, even as root,
+# even with the device node's group permission satisfied — a kernel
+# check independent of file mode (confirmed live via `strace`:
+# `ioctl(3, SG_IO, ...) = -1 EPERM` without the capability; NVMe fails
+# identically on NVME_IOCTL_ADMIN_CMD). `setcap` grants exactly these two
+# capabilities to the smartctl binary specifically, so the non-root
+# server-assistant user (not root) can use them — paired with `cap_add`
+# in docker-compose.yml, which makes the capabilities grantable at all (a
+# setcap binary alone cannot exceed the container's capability bounding
+# set). Auto-detection (no `-d` hint) works correctly for both ATA and
+# NVMe once this permission gap is closed — the earlier "type: scsi"
+# misdetection and Alpine base bump to smartctl 7.5 (tried first) were
+# both red herrings; the pin stays at 3.20 rather than growing the diff
+# for a version that was never the actual cause.
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates wget bash util-linux strace \
+RUN apk add --no-cache ca-certificates wget bash util-linux strace smartmontools libcap \
+    && setcap cap_sys_rawio,cap_sys_admin=+ep /usr/sbin/smartctl \
     && addgroup -S server-assistant \
     && adduser -S -G server-assistant -H -D server-assistant \
+    && (addgroup -g 6 disk 2>/dev/null || true) \
+    && adduser server-assistant disk \
     && mkdir -p /var/lib/server-assistant \
     && chown server-assistant:server-assistant /var/lib/server-assistant
 
