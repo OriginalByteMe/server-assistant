@@ -1,8 +1,10 @@
 # Server Assistant — dev tasks. Conforms to docs/CONVENTIONS.md.
 # Single static binary, CGO disabled (ADR 0004 / ADR 0007).
 
-BINARY := bin/server-assistant
-PKG    := ./cmd/server-assistant
+BINARY      := bin/server-assistant
+PKG         := ./cmd/server-assistant
+SHIM_BINARY := bin/sa-mcp-shim
+SHIM_PKG    := ./cmd/sa-mcp-shim
 
 # Pinned, never @latest: the prebaked offline image (ADR 0008) is only
 # reproducible against fixed tool versions, and @latest is the silent drift
@@ -14,10 +16,15 @@ GOOSE_VERSION         := v3.21.1
 SQLC_VERSION          := v1.27.0
 GOLANGCI_LINT_VERSION := v1.59.1
 
-.PHONY: build run test lint smoke sqlc tidy tools agent-result clean deploy demo-setup demo-e2e
+.PHONY: build shim run test lint smoke sqlc tidy tools agent-result clean deploy demo-setup demo-e2e
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o $(BINARY) $(PKG)
+
+# The local stdio<->HTTP MCP shim (HL-SA-20 / issue #56 fallback transport).
+# Runs on the user's own machine, never on Unraid.
+shim:
+	CGO_ENABLED=0 go build -trimpath -o $(SHIM_BINARY) $(SHIM_PKG)
 
 run: build
 	./$(BINARY) -config config.yaml

@@ -40,14 +40,29 @@ type UnraidConfig struct {
 	// TailscalePath is the tailscale CLI used for the reachability
 	// self-check (docs/research/mcp-reachability.md §5).
 	TailscalePath string `yaml:"tailscale_path"`
+	// HostProcPath is the bind-mounted Unraid HOST's procfs (HL-SA-22 host
+	// vitals fallback, internal/unraid/procfs.go) — never the container's
+	// own /proc, which describes the container and would misreport host
+	// CPU/memory/uptime (CONVENTIONS rule 5). docker-compose.yml mounts the
+	// real host /proc at exactly this default path
+	// (`- /proc:/host/proc:ro`); an absent or unreadable path is a hard
+	// error in procfs.go, never a silent fallback to the container's own
+	// /proc.
+	HostProcPath string `yaml:"host_proc_path"`
 
 	GraphQLTimeoutStr      string `yaml:"graphql_timeout"`
 	EmhttpTimeoutStr       string `yaml:"emhttp_timeout"`
 	SmartTimeoutStr        string `yaml:"smart_timeout"`
 	DockerTimeoutStr       string `yaml:"docker_timeout"`
 	ReachabilityTimeoutStr string `yaml:"reachability_timeout"`
+	// CPUSampleIntervalStr bounds the gap between the two /proc/stat reads
+	// procfs.go's CPU-percent sampler takes: a single read is only
+	// cumulative jiffies since boot, not current load, so a delta over a
+	// short interval is unavoidable. Short enough to keep the host-info
+	// read snappy, long enough for the jiffy counters to move measurably.
+	CPUSampleIntervalStr string `yaml:"cpu_sample_interval"`
 
-	graphqlTimeout, emhttpTimeout, smartTimeout, dockerTimeout, reachabilityTimeout time.Duration // resolved by resolve()
+	graphqlTimeout, emhttpTimeout, smartTimeout, dockerTimeout, reachabilityTimeout, cpuSampleInterval time.Duration // resolved by resolve()
 }
 
 // GraphQLTimeout is the per-call deadline enforced on every GraphQL request
@@ -70,6 +85,10 @@ func (u UnraidConfig) DockerTimeout() time.Duration { return u.dockerTimeout }
 // backend probe in the reachability self-check.
 func (u UnraidConfig) ReachabilityTimeout() time.Duration { return u.reachabilityTimeout }
 
+// CPUSampleInterval bounds the gap between procfs.go's two /proc/stat reads
+// when computing host CPU percent (see CPUSampleIntervalStr's doc comment).
+func (u UnraidConfig) CPUSampleInterval() time.Duration { return u.cpuSampleInterval }
+
 // resolve validates the Unraid block and parses its duration strings,
 // applying defaults for every omitted optional knob (rule 6). Mirrors
 // SSHConfig.resolve()'s string-field + private-duration + accessor shape
@@ -87,6 +106,9 @@ func (u *UnraidConfig) resolve() error {
 	if u.TailscalePath == "" {
 		u.TailscalePath = "tailscale"
 	}
+	if u.HostProcPath == "" {
+		u.HostProcPath = "/host/proc"
+	}
 	var err error
 	if u.graphqlTimeout, err = parseDurationDefault(u.GraphQLTimeoutStr, 10*time.Second); err != nil {
 		return fmt.Errorf("unraid graphql_timeout: %w", err)
@@ -102,6 +124,9 @@ func (u *UnraidConfig) resolve() error {
 	}
 	if u.reachabilityTimeout, err = parseDurationDefault(u.ReachabilityTimeoutStr, 5*time.Second); err != nil {
 		return fmt.Errorf("unraid reachability_timeout: %w", err)
+	}
+	if u.cpuSampleInterval, err = parseDurationDefault(u.CPUSampleIntervalStr, 250*time.Millisecond); err != nil {
+		return fmt.Errorf("unraid cpu_sample_interval: %w", err)
 	}
 	return nil
 }

@@ -49,13 +49,38 @@ func NewSource(cfg config.UnraidConfig, dashboardAddr string, log *slog.Logger) 
 	}
 }
 
+// HostInfo reads host CPU/memory/uptime, falling back to the host's
+// bind-mounted procfs (HL-SA-22, procfs.go) when and only when unraid-api
+// rejects the credential (errors.Is core.ErrUnauthenticated) — same rule as
+// Array/Shares. Any other GraphQL failure still surfaces as an error.
 func (s *Source) HostInfo(ctx context.Context) (core.HostInfo, error) {
+	info, err := s.hostInfoFromGraphQL(ctx)
+	if err == nil {
+		return info, nil
+	}
+	if !errors.Is(err, core.ErrUnauthenticated) {
+		return core.HostInfo{}, err
+	}
+	s.log.InfoContext(ctx, "unraid host info read from procfs: unraid-api credential absent")
+	info, ferr := hostInfoFromProcfs(ctx, s.cfg)
+	if ferr != nil {
+		s.log.ErrorContext(ctx, "unraid host info procfs fallback read failed", "error", ferr)
+		return core.HostInfo{}, fmt.Errorf("unraid host info: procfs fallback: %w", ferr)
+	}
+	return info, nil
+}
+
+// hostInfoFromGraphQL is the full-fidelity path: unraid-api's info/vars/
+// metrics query.
+func (s *Source) hostInfoFromGraphQL(ctx context.Context) (core.HostInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.GraphQLTimeout())
 	defer cancel()
 
 	var resp hostInfoResponse
 	if err := s.gql.do(ctx, hostInfoQuery, &resp); err != nil {
-		s.log.ErrorContext(ctx, "unraid host info read failed", "error", err)
+		if !errors.Is(err, core.ErrUnauthenticated) {
+			s.log.ErrorContext(ctx, "unraid host info read failed", "error", err)
+		}
 		return core.HostInfo{}, fmt.Errorf("unraid host info: %w", err)
 	}
 
@@ -78,6 +103,7 @@ func (s *Source) HostInfo(ctx context.Context) (core.HostInfo, error) {
 		MemTotalBytes: int64(resp.Metrics.Memory.Total),
 		MemUsedBytes:  int64(resp.Metrics.Memory.Used),
 		UptimeSeconds: uptime,
+		Source:        core.SourceUnraidAPI,
 		CollectedAt:   time.Now(),
 	}, nil
 }

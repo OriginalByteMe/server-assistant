@@ -43,7 +43,11 @@ type HostInfo struct {
 	MemTotalBytes int64
 	MemUsedBytes  int64
 	UptimeSeconds int64
-	CollectedAt   time.Time
+	// Source records which path produced this reading. Never leave it empty
+	// on a successful read. Declared below StateSource's own definition only
+	// for readability; the type is defined further down this file.
+	Source      StateSource
+	CollectedAt time.Time
 }
 
 // StateSource names where a reading actually came from. It exists because
@@ -62,6 +66,12 @@ const (
 	// SourceEmhttp — read from /var/local/emhttp/*.ini because no API
 	// credential was available. Fewer fields; absent ones stay absent.
 	SourceEmhttp StateSource = "emhttp"
+	// SourceProcfs — read from the Unraid Host's own procfs, bind-mounted
+	// into this container read-only. Used for host vitals when no API
+	// credential is available. It is the HOST's procfs, never the
+	// container's: reporting container CPU or memory as the Host's would be
+	// precisely the lie rule 5 exists to prevent.
+	SourceProcfs StateSource = "procfs"
 )
 
 // ArrayState is the array and its parity, the noun an Unraid user thinks in.

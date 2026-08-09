@@ -435,3 +435,27 @@ func TestUnraidPage_EmhttpFallbackIsDisclosedApiPathIsNot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotContains(t, rec.Body.String(), "not the Unraid API")
 }
+
+// Host vitals read from the Host's bind-mounted procfs must say so. The
+// numbers are real measurements, so the notice names the SOURCE and must not
+// imply the values are estimates — and it must be absent on the full API
+// path, or it degrades into noise users learn to ignore.
+func TestUnraidPage_ProcfsHostVitalsAreDisclosedApiPathIsNot(t *testing.T) {
+	degraded := fullFakeUnraidSource()
+	degraded.host.Source = core.SourceProcfs
+
+	rec := httptest.NewRecorder()
+	HandlerFull(&fakeVS{}, nil, degraded, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unraid", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, "not the Unraid API")
+	require.Contains(t, body, "not estimates")
+
+	full := fullFakeUnraidSource()
+	full.host.Source = core.SourceUnraidAPI
+
+	rec = httptest.NewRecorder()
+	HandlerFull(&fakeVS{}, nil, full, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unraid", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotContains(t, rec.Body.String(), "not estimates")
+}

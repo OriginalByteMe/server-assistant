@@ -70,6 +70,14 @@ services:
       # INI state fallback source (docs/research/unraid-state-sources.md
       # §"Gaps and their direct sources") — read-only, never written.
       - /var/local/emhttp:/var/local/emhttp:ro
+      # HL-SA-22: host CPU/memory/uptime, read-only. The container's OWN
+      # /proc describes the container, not the Unraid host — reporting it
+      # as host vitals would be exactly the lie CONVENTIONS rule 5 forbids.
+      # This mounts the HOST's real procfs at a distinct path
+      # (internal/config/unraid.go's host_proc_path default,
+      # internal/unraid/procfs.go reads only from here); the container's
+      # native /proc is left untouched and is never used as a fallback.
+      - /proc:/host/proc:ro
       # Root-equivalent — read the comment block above before touching this.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # The reachability self-check shells out to the tailscale CLI. Without

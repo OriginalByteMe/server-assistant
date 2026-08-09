@@ -4,6 +4,10 @@
     "linear": {
       "type": "http",
       "url": "https://mcp.linear.app/mcp"
+    },
+    "server-assistant": {
+      "type": "http",
+      "url": "http://100.90.134.29:8099/mcp"
     }
   }
 }

@@ -107,7 +107,11 @@ type hostDTO struct {
 	MemTotalBytes int64   `json:"mem_total_bytes"`
 	MemUsedBytes  int64   `json:"mem_used_bytes"`
 	UptimeSeconds int64   `json:"uptime_seconds"`
-	CollectedAt   string  `json:"collected_at"`
+	// Source is "unraid-api", "procfs" or "emhttp" — which path produced
+	// this reading. Without it a consumer cannot tell full API fidelity from
+	// the key-free fallback.
+	Source      string `json:"source"`
+	CollectedAt string `json:"collected_at"`
 }
 
 func toHostDTO(h core.HostInfo) hostDTO {
@@ -120,6 +124,7 @@ func toHostDTO(h core.HostInfo) hostDTO {
 		MemTotalBytes: h.MemTotalBytes,
 		MemUsedBytes:  h.MemUsedBytes,
 		UptimeSeconds: h.UptimeSeconds,
+		Source:        string(h.Source),
 		CollectedAt:   h.CollectedAt.Format(time.RFC3339),
 	}
 }

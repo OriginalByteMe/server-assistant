@@ -42,22 +42,77 @@ unraid:
 	return *cfg.Unraid
 }
 
+// loadUnraidConfigWithHostProc mirrors loadUnraidConfig but also sets
+// host_proc_path, for HostInfo's procfs-fallback tests.
+func loadUnraidConfigWithHostProc(t *testing.T, graphqlURL, hostProcPath, cpuSampleInterval string) config.UnraidConfig {
+	t.Helper()
+	yaml := fmt.Sprintf(`schema_version: 1
+unraid:
+  graphql_url: %q
+  api_key: test-key
+  host_proc_path: %q
+  cpu_sample_interval: %q
+`, graphqlURL, hostProcPath, cpuSampleInterval)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o644))
+
+	cfg, err := config.NewFileSource(path).Load(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Unraid)
+	return *cfg.Unraid
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError + 1}))
 }
 
-func TestSource_HostInfo_AuthFailure(t *testing.T) {
+func TestSource_HostInfo_MapsFromGraphQL_ProvenanceUnraidAPI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"data":{"info":{"os":{"hostname":"rijkaardserver","uptime":"12345"},"cpu":{"manufacturer":"AMD","brand":"Ryzen","cores":16}},"vars":{"version":"7.3.2"},"metrics":{"cpu":{"percentTotal":12.5},"memory":{"total":1000,"used":400}}}}`))
 	}))
 	defer srv.Close()
 
 	cfg := loadUnraidConfig(t, srv.URL, "smartctl", "tailscale", "/no/such/sock")
 	src := NewSource(cfg, ":8090", discardLogger())
 
-	_, err := src.HostInfo(context.Background())
-	require.Error(t, err)
-	assert.ErrorIs(t, err, core.ErrUnauthenticated, "an unauthenticated GraphQL read must surface core.ErrUnauthenticated, never a zero HostInfo")
+	info, err := src.HostInfo(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, core.SourceUnraidAPI, info.Source, "a successful GraphQL read must be tagged unraid-api, never left blank")
+	assert.Equal(t, "rijkaardserver", info.Hostname)
+	assert.Equal(t, int64(12345), info.UptimeSeconds)
+}
+
+func TestSource_HostInfo_FallsBackToProcfs_OnUnauthenticated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	cfg := loadUnraidConfigWithHostProc(t, srv.URL, withLiveStatFixture(t), "20ms")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	info, err := src.HostInfo(context.Background())
+	require.NoError(t, err, "an unauthenticated GraphQL read must fall back to procfs, not surface as an error")
+	assert.Equal(t, core.SourceProcfs, info.Source, "the fallback read must be tagged procfs so the dashboard can tell it apart from a full unraid-api read")
+	assert.Equal(t, int64(32785840)*1024, info.MemTotalBytes)
+}
+
+func TestSource_HostInfo_NonAuthGraphQLError_DoesNotFallBack(t *testing.T) {
+	// host_proc_path points nowhere real: if HostInfo() incorrectly fell
+	// back on a non-auth error, this read would fail with a procfs-read
+	// error instead of surfacing the original GraphQL message below.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"errors":[{"message":"boom: internal resolver error"}]}`))
+	}))
+	defer srv.Close()
+	cfg := loadUnraidConfigWithHostProc(t, srv.URL, filepath.Join(t.TempDir(), "does-not-exist"), "20ms")
+	src := NewSource(cfg, ":8090", discardLogger())
+
+	info, err := src.HostInfo(context.Background())
+	require.Error(t, err, "a non-auth GraphQL error must surface as an error, never be swallowed by a fallback")
+	assert.False(t, errors.Is(err, core.ErrUnauthenticated), "this error is not an auth failure and must not be mistaken for one")
+	assert.Contains(t, err.Error(), "boom: internal resolver error", "the original GraphQL error must reach the caller, not a procfs-fallback error")
+	assert.Equal(t, core.HostInfo{}, info, "no partial or fallback data on a real failure")
 }
 
 func TestSource_Array_MapsDisksAndSmartStatusAcrossQueries(t *testing.T) {

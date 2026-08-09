@@ -149,7 +149,12 @@ type hostView struct {
 	MemUsed       string
 	MemTotal      string
 	Uptime        string
-	CollectedAt   string
+	// Degraded is true when these vitals came from the Host's bind-mounted
+	// procfs rather than unraid-api. The reading itself is real — CPU is a
+	// genuine delta-sampled measurement, not an estimate — so the notice
+	// says "different source", never "less trustworthy number".
+	Degraded    bool
+	CollectedAt string
 }
 
 func hostSectionOf(ctx context.Context, us core.UnraidSource) hostSection {
@@ -166,6 +171,7 @@ func hostSectionOf(ctx context.Context, us core.UnraidSource) hostSection {
 		MemUsed:       formatBytes(h.MemUsedBytes),
 		MemTotal:      formatBytes(h.MemTotalBytes),
 		Uptime:        formatUptime(h.UptimeSeconds),
+		Degraded:      h.Source == core.SourceProcfs,
 		CollectedAt:   timeOrDash(h.CollectedAt),
 	}}
 }
@@ -380,6 +386,9 @@ var unraidPageTmpl = template.Must(template.New("unraid").Parse(`<!doctype html>
 {{- if .Host.OK }}
 <p>{{ .Host.Data.Hostname }} — Unraid {{ .Host.Data.UnraidVersion }} — {{ .Host.Data.CPUModel }} ({{ .Host.Data.CPUCores }} cores)</p>
 <p>CPU: <strong>{{ .Host.Data.CPUPercent }}</strong> — Memory: <strong>{{ .Host.Data.MemUsed }}</strong> / {{ .Host.Data.MemTotal }} — Uptime: {{ .Host.Data.Uptime }}</p>
+{{- if .Host.Data.Degraded }}
+<p class="alert-unauth">Read from the server's own /proc, not the Unraid API — no API key is configured. These are real measurements of this machine, not estimates; only the source differs.</p>
+{{- end }}
 <p class="muted">Collected at {{ .Host.Data.CollectedAt }}</p>
 {{- else }}
 <p class="err">{{ .Host.Err }}</p>
