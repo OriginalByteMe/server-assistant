@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -128,12 +129,33 @@ func (b *proposalBridge) Proposal(ctx context.Context, id string) (web.Proposal,
 // lost (ADR 0009/0023). Registry.Approve is itself synchronous and audited.
 func (b *proposalBridge) Approve(ctx context.Context, id, who string) error {
 	_, err := b.reg.Approve(ctx, id, who)
+	logDecision(ctx, "approve", id, who, err)
 	return err
 }
 
 func (b *proposalBridge) Deny(ctx context.Context, id, who string) error {
 	_, err := b.reg.Deny(ctx, id, who, "denied on dashboard")
+	logDecision(ctx, "deny", id, who, err)
 	return err
+}
+
+// logDecision emits the one structured line that makes a human approval
+// observable in `docker compose logs`. Registry.transition already writes
+// the durable audit row, so this is not the record of last resort — but a
+// decision that authorises a script to run against the Host left no trace
+// whatsoever in the logs until now, which made "approve, then watch the
+// state transition in the logs" impossible to actually do. Logged for
+// failures too: a refused approval is exactly as interesting as a granted
+// one, and silence on error would misreport a rejected decision as if it
+// had never been attempted (CONVENTIONS rule 5).
+func logDecision(ctx context.Context, action, id, who string, err error) {
+	if err != nil {
+		slog.WarnContext(ctx, "script proposal decision refused",
+			"action", action, "proposal_id", id, "actor", who, "error", err)
+		return
+	}
+	slog.InfoContext(ctx, "script proposal decision recorded",
+		"action", action, "proposal_id", id, "actor", who)
 }
 
 // webProposals converts a possibly-nil bridge into a possibly-nil interface.

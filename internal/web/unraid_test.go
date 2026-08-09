@@ -324,6 +324,28 @@ func TestUnraidPage_ProposalWouldDoWordingPresentNeverWillDo(t *testing.T) {
 	require.Contains(t, body, `action="/api/unraid/proposals/p1/deny"`)
 }
 
+// The MCP tool hands the model a dashboard_url of the form
+// ".../unraid#proposal-<id>" (cmd/server-assistant/scripts_wiring.go's
+// dashboardURLFor), and the model hands that straight to a human. Until
+// 2026-08-09 the page rendered no matching element id at all, so every one
+// of those links landed at the top of the page and the human had to hunt
+// for the right proposal among all the pending ones. Found live, with two
+// proposals already on the page.
+func TestUnraidPage_ProposalHasAnchorMatchingDashboardURLFragment(t *testing.T) {
+	ps := newFakeProposalSource(
+		Proposal{ID: "aaa111", Title: "first", DryRunOutput: "would do a"},
+		Proposal{ID: "bbb222", Title: "second", DryRunOutput: "would do b"},
+	)
+	rec := httptest.NewRecorder()
+	HandlerFull(&fakeVS{}, nil, fullFakeUnraidSource(), ps).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unraid", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	require.Contains(t, body, `id="proposal-aaa111"`)
+	require.Contains(t, body, `id="proposal-bbb222"`)
+}
+
 // With no ProposalSource wired in, the proposals section is absent and the
 // decision routes 404 — same nil-means-absent convention as Harness.
 func TestUnraidPage_NilProposalSourceSectionAbsentRoutesAbsent(t *testing.T) {

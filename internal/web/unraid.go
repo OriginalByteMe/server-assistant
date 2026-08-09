@@ -454,6 +454,7 @@ var unraidPageTmpl = template.Must(template.New("unraid").Parse(`<!doctype html>
 <h2>Script proposals</h2>
 <p class="muted">A dry run shows what a script would do. It has not been run and no changes have been made.</p>
 {{- range .Proposals }}
+<div id="proposal-{{ .ID }}" class="proposal-row">
 <h3>{{ .Title }} <small class="muted">({{ .RequestedBy }}, {{ .RequestedAt }})</small></h3>
 <pre class="tool-output">{{ .DryRunOutput }}</pre>
 {{- if .Pending }}
@@ -462,6 +463,7 @@ var unraidPageTmpl = template.Must(template.New("unraid").Parse(`<!doctype html>
 {{- else }}
 <p>Decision: <strong class="a-{{ .Decision }}">{{ .Decision }}</strong>{{ if .DecidedBy }} by {{ .DecidedBy }}{{ end }} at {{ .DecidedAt }}</p>
 {{- end }}
+</div>
 {{- end }}
 {{- end }}
 
