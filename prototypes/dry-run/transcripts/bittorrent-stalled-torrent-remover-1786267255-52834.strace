@@ -1,0 +1,8 @@
+52856 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7ffe1228fb68 /* 142 vars */) = 0
+52857 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "start", "e733a8179c2a"], 0x55bfacc19280 /* 143 vars */) = 0
+52858 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x5984e1009b20 /* 143 vars */) = 0
+52857 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52858, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52859 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52860, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52859 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52861, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52857 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52859, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52856 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52857, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---

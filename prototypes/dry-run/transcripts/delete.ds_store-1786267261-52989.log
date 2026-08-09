@@ -1,0 +1,9 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/delete.ds_store/script ===
+=== scenario: <none> ===
+=== started: 2026-08-09T17:21:01+08:00 ===
+[2026-08-09T17:21:01.325855116+0800] 53018 CMD rm /mnt/user/appdata/somecontainer/.DS_Store
+[2026-08-09T17:21:01.338190638+0800] 53018 VIOLATION cmd=rm target=/mnt/user/appdata/somecontainer/.DS_Store reason=outside-sandbox-scope
+[2026-08-09T17:21:01.362237635+0800] 53030 CMD rm /mnt/user/Media/Movies/.DS_Store
+[2026-08-09T17:21:01.375631221+0800] 53030 VIOLATION cmd=rm target=/mnt/user/Media/Movies/.DS_Store reason=outside-sandbox-scope
+=== finished: 2026-08-09T17:21:01+08:00 ===
+=== script exit code: 0 (124 = killed by timeout after 15s) ===

@@ -1,0 +1,7 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/delete_dangling_images/script ===
+=== scenario: <none> ===
+=== started: 2026-08-09T17:20:54+08:00 ===
+[2026-08-09T17:20:54.982696953+0800] 52809 CMD docker images --quiet --filter dangling=true
+[2026-08-09T17:20:54.996678658+0800] 52816 CMD docker rmi sha256:deadbeefcafe0001 sha256:deadbeefcafe0002
+=== finished: 2026-08-09T17:20:55+08:00 ===
+=== script exit code: 0 (124 = killed by timeout after 15s) ===

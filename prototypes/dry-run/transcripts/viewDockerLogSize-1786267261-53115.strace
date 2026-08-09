@@ -1,0 +1,12 @@
+53137 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7ffda6852c28 /* 142 vars */) = 0
+53138 execve("/usr/bin/du", ["du", "-ah", "/var/lib/docker/containers/"], 0x5d683317b280 /* 143 vars */ <unfinished ...>
+53139 execve("/usr/bin/grep", ["grep", "-v", "/$"], 0x5d683317b280 /* 143 vars */ <unfinished ...>
+53138 <... execve resumed>)             = 0
+53140 execve("/usr/bin/sort", ["sort", "-rh"], 0x5d683317b280 /* 143 vars */ <unfinished ...>
+53139 <... execve resumed>)             = 0
+53141 execve("/usr/bin/head", ["head", "-60"], 0x5d683317b280 /* 143 vars */ <unfinished ...>
+53140 <... execve resumed>)             = 0
+53142 execve("/usr/bin/grep", ["grep", ".log"], 0x5d683317b280 /* 143 vars */ <unfinished ...>
+53141 <... execve resumed>)             = 0
+53142 <... execve resumed>)             = 0
+53137 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53138, si_uid=0, si_status=1, si_utime=0, si_stime=0} ---

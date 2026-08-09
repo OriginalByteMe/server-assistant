@@ -1,0 +1,103 @@
+#!/bin/bash
+#description=Fail-closed guard for the trawl Cloudflare solver. trawl shares the binhex-qbittorrentvpn network namespace, so it must NOT run unless that namespace provably egresses through the PIA WireGuard tunnel. Single process: blocks on docker events for instant reaction, re-verifies at least every 30s, recreates trawl if the namespace was rebuilt, and flushes trawl cached Cloudflare clearance whenever the PIA exit IP changes (clearance is bound to the exit IP). Safe to run every minute - flock makes duplicates a no-op.
+#name=trawl-vpn-guard
+VPN=binhex-qbittorrentvpn
+APP=trawl
+REDIS=Redis
+REDIS_DB=9
+STATE=/mnt/user/appdata/trawl
+LOG=$STATE/guard.log
+PROBE_IP=1.1.1.1
+MAX_HS_AGE=300
+
+mountpoint -q /mnt/user || exit 0
+mkdir -p "$STATE"
+exec 9>/var/run/trawl-vpn-guard.lock
+flock -n 9 || exit 0
+
+log(){ printf "%s %s\n" "$(date "+%F %T")" "$*" >>"$LOG"; logger -t trawl-vpn-guard "$*"; }
+
+# POSITIVE kernel-truth assertions only - no external IP service, no guessing:
+#  1) wg0 exists
+#  2) a route to a real destination resolves out dev wg0, NOT eth0
+#  3) the WireGuard handshake is fresh, so the peer is actually alive
+#  4) a peer endpoint exists (PIA WireGuard exits on its endpoint address)
+# Sets PEER to the current exit address on success.
+PEER=""
+safe(){
+  PEER=""
+  docker exec "$VPN" ip link show wg0 >/dev/null 2>&1 || return 1
+  docker exec "$VPN" ip route get "$PROBE_IP" 2>/dev/null | grep -q "dev wg0" || return 1
+  local hs now ep
+  hs=$(docker exec "$VPN" wg show wg0 latest-handshakes 2>/dev/null | awk "{print \$2}" | head -1)
+  case "$hs" in ""|*[!0-9]*) return 1;; esac
+  [ "$hs" -gt 0 ] || return 1
+  now=$(date +%s)
+  [ $(( now - hs )) -lt "$MAX_HS_AGE" ] || return 1
+  ep=$(docker exec "$VPN" wg show wg0 endpoints 2>/dev/null | awk "{print \$2}" | cut -d: -f1 | head -1)
+  [ -n "$ep" ] || return 1
+  PEER="$ep"
+  return 0
+}
+
+# Cloudflare binds cf_clearance to the exit IP. A new PIA session invalidates every
+# cached session, and trawl will happily serve the stale one and return stub pages.
+flush_cache(){
+  # Scoped to trawl own session:* keys - NEVER FLUSHDB, this Redis is shared with
+  # other apps and nothing reserves db 9 for us.
+  local n
+  n=$(docker exec "$REDIS" sh -c "redis-cli -n $REDIS_DB --scan --pattern \"session:*\" | tr -d \"\r\" | xargs -r redis-cli -n $REDIS_DB UNLINK" 2>/dev/null | tail -1)
+  log "exit IP changed to $PEER - dropped ${n:-0} cached clearance session(s) from Redis db $REDIS_DB (scoped session:*)"
+}
+
+recreate(){
+  docker rm -f "$APP" >/dev/null 2>&1
+  docker run -d --name "$APP" --network "container:$VPN" --restart unless-stopped \
+    --shm-size 2g --memory 6g \
+    -v trawl_proxy_ca:/data/proxy-ca \
+    -e PORT=8191 -e REDIS_URL=redis://172.18.0.1:6379/9 \
+    -e BROWSER_POOL_SIZE=5 -e BROWSER_RECYCLE_AFTER_CONTEXTS=4 -e SESSION_TTL_SECONDS=3600 \
+    -e BLOCK_MEDIA=true -e TZ=Europe/Amsterdam \
+    -e MITM_PROXY_ENABLED=true -e MITM_PROXY_HOST=0.0.0.0 -e MITM_PROXY_PORT=8192 \
+    -e MITM_PROXY_CA_DIR=/data/proxy-ca -e MITM_PROXY_MAX_TIER=3 \
+    ghcr.io/germondai/trawl:1.2.0 >/dev/null 2>&1 \
+    && log "recreated $APP inside $VPN namespace" || log "ERROR: could not recreate $APP"
+}
+
+enforce(){
+  local running prev
+  running=$(docker inspect -f "{{.State.Running}}" "$APP" 2>/dev/null)
+  if safe; then
+    prev=$(cat "$STATE/last-egress" 2>/dev/null)
+    if [ "$prev" != "$PEER" ]; then
+      printf "%s" "$PEER" > "$STATE/last-egress"
+      flush_cache
+      [ "$running" = "true" ] && { docker restart "$APP" >/dev/null 2>&1; log "restarted $APP after exit-IP change"; return; }
+    fi
+    if [ "$running" != "true" ]; then
+      log "tunnel verified (peer $PEER); starting $APP"
+      docker start "$APP" >/dev/null 2>&1 || recreate
+    fi
+  else
+    if [ "$running" = "true" ]; then
+      log "tunnel NOT verified; stopping $APP (fail-closed)"
+      docker stop -t 5 "$APP" >/dev/null 2>&1
+    fi
+  fi
+}
+
+log "guard starting (pid $$)"
+# Single process, no long-lived background children: docker events blocks until
+# something happens (instant reaction); the 30s timeout guarantees periodic re-checks.
+while true; do
+  enforce
+  ev=$(timeout 30 docker events --filter "container=$VPN" \
+        --filter event=start --filter event=restart --filter event=die \
+        --filter event=stop --filter event=kill \
+        --format "{{.Action}}" 2>/dev/null | head -1)
+  if [ -n "$ev" ]; then
+    log "VPN event [$ev] -> stopping $APP pending re-verification"
+    docker stop -t 5 "$APP" >/dev/null 2>&1
+    sleep 8
+  fi
+done

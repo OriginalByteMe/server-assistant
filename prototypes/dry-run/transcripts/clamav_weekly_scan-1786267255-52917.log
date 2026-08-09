@@ -1,0 +1,7 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/clamav_weekly_scan/script ===
+=== scenario: scenarios/clamav-running.env ===
+=== started: 2026-08-09T17:20:55+08:00 ===
+[2026-08-09T17:20:55.332250895+0800] 52940 CMD docker ps --format \{\{.Names\}\}
+[2026-08-09T17:20:55.349630255+0800] 52948 CMD docker exec ClamAV clamdscan --multiscan --fdpass --infected --move=/var/lib/clamav/quarantine --log=/var/lib/clamav/scan.log /scandir
+=== finished: 2026-08-09T17:20:55+08:00 ===
+=== script exit code: 0 (124 = killed by timeout after 15s) ===

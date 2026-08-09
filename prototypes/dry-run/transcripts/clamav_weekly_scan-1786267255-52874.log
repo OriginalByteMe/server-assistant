@@ -1,0 +1,6 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/clamav_weekly_scan/script ===
+=== scenario: scenarios/clamav-not-running.env ===
+=== started: 2026-08-09T17:20:55+08:00 ===
+[2026-08-09T17:20:55.220698194+0800] 52897 CMD docker ps --format \{\{.Names\}\}
+=== finished: 2026-08-09T17:20:55+08:00 ===
+=== script exit code: 1 (124 = killed by timeout after 15s) ===

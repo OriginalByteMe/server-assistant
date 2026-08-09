@@ -1,0 +1,21 @@
+53085 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7ffcc86bc8d8 /* 143 vars */) = 0
+53086 execve("/usr/bin/mountpoint", ["mountpoint", "-q", "/mnt/user"], 0x60e9373cb3e0 /* 144 vars */) = 0
+53085 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53086, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53087 execve("/usr/bin/mkdir", ["mkdir", "-p", "/mnt/user/appdata/tdarr/plex-gat"...], 0x60e9373cb3e0 /* 144 vars */) = 0
+53085 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53087, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53089 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "inspect", "-f", "{{.State.Status}}", "tdarr"], 0x60e9373cb3e0 /* 144 vars */) = 0
+53090 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x5a5c743bfcd0 /* 144 vars */) = 0
+53089 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53090, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53091 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53092, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53091 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53093, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53091 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53094, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53091 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53095, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53089 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53091, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53088 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53089, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53085 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53088, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53097 execve("/usr/bin/grep", ["grep", "-o", "PlexOnlineToken=\"[^\"]*\"", "/mnt/user/appdata/Plex-Media-Ser"...], 0x60e9373cb3e0 /* 144 vars */ <unfinished ...>
+53098 execve("/usr/bin/cut", ["cut", "-d\"", "-f2"], 0x60e9373cb3e0 /* 144 vars */ <unfinished ...>
+53097 <... execve resumed>)             = 0
+53098 <... execve resumed>)             = 0
+53096 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53097, si_uid=0, si_status=2, si_utime=0, si_stime=0} ---
+53085 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53096, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---

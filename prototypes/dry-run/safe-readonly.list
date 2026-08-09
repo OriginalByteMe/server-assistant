@@ -1,0 +1,47 @@
+# Binaries the harness lets execute for real, read-only, against the read-only
+# bind-mounted filesystem (or the isolated loopback-only network namespace for
+# curl). Deliberately curated, not "everything not otherwise mentioned" — see
+# FINDINGS.md for why an allowlist-of-safe beats a blocklist-of-unsafe here.
+bash
+sh
+cat
+ls
+grep
+egrep
+fgrep
+find
+echo
+printf
+date
+sleep
+test
+[
+awk
+sed
+curl
+head
+tail
+wc
+sort
+uniq
+basename
+dirname
+hostname
+id
+whoami
+true
+false
+stat
+du
+df
+ps
+pgrep
+jq
+mountpoint
+cut
+xargs
+tr
+flock
+logger
+timeout
+realpath

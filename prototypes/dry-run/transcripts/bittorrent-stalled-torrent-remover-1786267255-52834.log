@@ -1,0 +1,6 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/bittorrent-stalled-torrent-remover/script ===
+=== scenario: <none> ===
+=== started: 2026-08-09T17:20:55+08:00 ===
+[2026-08-09T17:20:55.108594383+0800] 52857 CMD docker start e733a8179c2a
+=== finished: 2026-08-09T17:20:55+08:00 ===
+=== script exit code: 0 (124 = killed by timeout after 15s) ===

@@ -1,0 +1,12 @@
+docker
+rm
+mv
+cp
+chmod
+chown
+mkfs
+dd
+rsync
+ln
+tee
+truncate

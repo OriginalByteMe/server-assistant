@@ -1,0 +1,1 @@
+Weekly ClamAV scan of Unraid(Media) using the ClamAV daemon container (clamdscan). Infected files are quarantined to appdata/clamav/quarantine.

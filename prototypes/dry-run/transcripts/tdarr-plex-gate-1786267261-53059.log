@@ -1,0 +1,6 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/tdarr-plex-gate/script ===
+=== scenario: <none> ===
+=== started: 2026-08-09T17:21:01+08:00 ===
+[2026-08-09T17:21:01.512804627+0800] 53089 CMD docker inspect -f \{\{.State.Status\}\} tdarr
+=== finished: 2026-08-09T17:21:01+08:00 ===
+=== script exit code: 0 (124 = killed by timeout after 10s) ===

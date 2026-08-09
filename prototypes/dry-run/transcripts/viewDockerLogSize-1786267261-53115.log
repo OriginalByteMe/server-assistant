@@ -1,0 +1,5 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/viewDockerLogSize/script ===
+=== scenario: <none> ===
+=== started: 2026-08-09T17:21:01+08:00 ===
+=== finished: 2026-08-09T17:21:01+08:00 ===
+=== script exit code: 1 (124 = killed by timeout after 15s) ===

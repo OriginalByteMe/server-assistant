@@ -1,0 +1,90 @@
+#!/bin/bash
+#description=Strict Plex gate for tdarr (production). Any Plex session: blocks new Tdarr jobs AND freezes the container (docker pause) so in-flight encodes suspend instantly. Unfreezes after 5 min idle; auto-resumes job dispatch only when armed. Run on a 1-minute cron.
+#name=tdarr-plex-gate
+
+PREFS='/mnt/user/appdata/Plex-Media-Server/Library/Application Support/Plex Media Server/Preferences.xml'
+TDARR_API='http://127.0.0.1:8266/api/v2/cruddb'
+CONTAINER='tdarr'
+STATE_DIR='/mnt/user/appdata/tdarr/plex-gate'
+IDLE_SECS=300
+LOG="$STATE_DIR/gate.log"
+
+mountpoint -q /mnt/user || exit 0
+mkdir -p "$STATE_DIR"
+log() { echo "$(date '+%F %T') $1" >> "$LOG"; tail -n 500 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"; }
+
+CSTATE=$(docker inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null)
+
+get_paused() {
+  curl -sS -m 10 -X POST "$TDARR_API" -H 'Content-Type: application/json' \
+    -d '{"data":{"collection":"SettingsGlobalJSONDB","mode":"getById","docID":"globalsettings"}}' | jq -r '.pauseAllNodes'
+}
+set_pause() {
+  curl -sS -m 10 -X POST "$TDARR_API" -H 'Content-Type: application/json' \
+    -d "{\"data\":{\"collection\":\"SettingsGlobalJSONDB\",\"mode\":\"update\",\"docID\":\"globalsettings\",\"obj\":{\"pauseAllNodes\":$1}}}" > /dev/null
+}
+
+TOKEN=$(grep -o 'PlexOnlineToken="[^"]*"' "$PREFS" | cut -d'"' -f2)
+SESSIONS=""
+[ -n "$TOKEN" ] && SESSIONS=$(curl -sS -m 10 "http://127.0.0.1:32400/status/sessions?X-Plex-Token=$TOKEN" -H 'Accept: application/json' | jq -r '.MediaContainer.size // empty')
+
+if [ -z "$SESSIONS" ]; then
+  # Plex unreachable (down = nobody can be watching). Mild fail-safe: block dispatch, never freeze.
+  if [ "$CSTATE" = "running" ] && [ "$(get_paused)" != "true" ]; then
+    set_pause true; touch "$STATE_DIR/paused-by-gate"
+    log "ERROR: Plex query failed — dispatch paused as fail-safe"
+  fi
+  exit 0
+fi
+
+if [ "$SESSIONS" -gt 0 ] 2>/dev/null; then
+  touch "$STATE_DIR/last_active"
+  if [ "$CSTATE" = "running" ]; then
+    if [ "$(get_paused)" != "true" ]; then
+      set_pause true; touch "$STATE_DIR/paused-by-gate"
+    fi
+    if docker pause "$CONTAINER" > /dev/null 2>&1; then
+      touch "$STATE_DIR/frozen-by-gate"
+      log "FREEZE: $SESSIONS Plex session(s) — container paused, dispatch blocked"
+    else
+      log "ERROR: docker pause failed with $SESSIONS session(s) active"
+    fi
+  fi
+  # container already paused (ours or manual): nothing to do
+else
+  [ -f "$STATE_DIR/last_active" ] || touch "$STATE_DIR/last_active"
+  NOW=$(date +%s); LAST=$(stat -c %Y "$STATE_DIR/last_active"); IDLE=$((NOW - LAST))
+
+  # container running but freeze marker present -> external unpause; marker is stale
+  if [ "$CSTATE" = "running" ] && [ -f "$STATE_DIR/frozen-by-gate" ]; then
+    rm -f "$STATE_DIR/frozen-by-gate"
+    log "NOTE: stale freeze marker cleared (container unpaused externally)"
+  fi
+
+  # unfreeze only a freeze this gate created, after hysteresis (regardless of armed:
+  # a frozen container also has a dead WebUI; dispatch stays paused unless armed below)
+  if [ "$CSTATE" = "paused" ] && [ -f "$STATE_DIR/frozen-by-gate" ] && [ "$IDLE" -ge "$IDLE_SECS" ]; then
+    if docker unpause "$CONTAINER" > /dev/null 2>&1; then
+      rm -f "$STATE_DIR/frozen-by-gate"
+      log "UNFREEZE: Plex idle ${IDLE_SECS}s — container resumed (in-flight job continues)"
+      CSTATE="running"
+      sleep 3
+    else
+      log "ERROR: docker unpause failed"
+    fi
+  fi
+
+  if [ "$CSTATE" = "running" ]; then
+    PAUSED=$(get_paused)
+    # someone released the dispatch pause outside this gate -> ownership marker is stale
+    if [ "$PAUSED" != "true" ] && [ -f "$STATE_DIR/paused-by-gate" ]; then
+      rm -f "$STATE_DIR/paused-by-gate"
+      log "NOTE: stale dispatch marker cleared (pause released externally)"
+    fi
+    if [ -f "$STATE_DIR/auto-unpause-armed" ] && [ -f "$STATE_DIR/paused-by-gate" ] && [ "$PAUSED" = "true" ] && [ "$IDLE" -ge "$IDLE_SECS" ]; then
+      set_pause false
+      rm -f "$STATE_DIR/paused-by-gate"
+      log "UNPAUSE: Plex idle ${IDLE_SECS}s, gate armed — dispatch resumed"
+    fi
+  fi
+fi

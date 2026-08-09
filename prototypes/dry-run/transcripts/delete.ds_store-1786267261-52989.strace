@@ -1,0 +1,39 @@
+53016 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7ffc50df0c78 /* 142 vars */) = 0
+53017 execve("/usr/bin/find", ["find", "/mnt/user", "-maxdepth", "9999", "-noleaf", "-type", "f", "-name", ".DS_Store", "-exec", "rm", "{}", ";"], 0x60e3a0dc02c0 /* 143 vars */) = 0
+53018 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/rm", ["rm", "/mnt/user/appdata/somecontainer/"...], 0x7ffda4e55708 /* 143 vars */) = 0
+53019 execve("/usr/bin/dirname", ["dirname", "/home/noahr/Projects/server-assi"...], 0x59469f2a52d0 /* 143 vars */) = 0
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53019, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53018 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/_shim_common.sh", ["/home/noahr/Projects/server-assi"..., "rm", "/mnt/user/appdata/somecontainer/"...], 0x59469f2a52d0 /* 143 vars */) = 0
+53020 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x56cdb15e3ad0 /* 143 vars */) = 0
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53020, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53021 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53022, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53021, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53023, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53025 execve("/usr/bin/realpath", ["realpath", "-m", "--", "/mnt/user/appdata/somecontainer/"...], 0x56cdb15f3620 /* 143 vars */) = 0
+53024 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53025, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53024, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53026 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x56cdb15e6150 /* 143 vars */) = 0
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53026, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53029 execve("/usr/bin/tr", ["tr", "[:lower:]", "[:upper:]"], 0x56cdb15f3620 /* 143 vars */) = 0
+53027 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53028, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53018 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53027, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53017 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53018, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53030 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/rm", ["rm", "/mnt/user/Media/Movies/.DS_Store"], 0x7ffda4e55708 /* 143 vars */) = 0
+53031 execve("/usr/bin/dirname", ["dirname", "/home/noahr/Projects/server-assi"...], 0x5eb6b8b7e2d0 /* 143 vars */) = 0
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53031, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53030 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/_shim_common.sh", ["/home/noahr/Projects/server-assi"..., "rm", "/mnt/user/Media/Movies/.DS_Store"], 0x5eb6b8b7e2d0 /* 143 vars */) = 0
+53032 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x62de1aca5ad0 /* 143 vars */) = 0
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53032, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53033 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53034, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53033, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53035, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53037 execve("/usr/bin/realpath", ["realpath", "-m", "--", "/mnt/user/Media/Movies/.DS_Store"], 0x62de1acb55e0 /* 143 vars */) = 0
+53036 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53037, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53036, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53038 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x62de1aca8140 /* 143 vars */) = 0
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53038, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53041 execve("/usr/bin/tr", ["tr", "[:lower:]", "[:upper:]"], 0x62de1acb55e0 /* 143 vars */) = 0
+53039 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53040, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53030 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53039, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53017 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53030, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+53016 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=53017, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---

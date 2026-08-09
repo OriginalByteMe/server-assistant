@@ -1,0 +1,53 @@
+#!/bin/bash
+# ponytail: docker gets its own shim (not the generic one) because scripts branch
+# on its *stdout*, not just its exit code, and different subcommands need
+# different plausible/configurable canned output. It NEVER touches the real
+# docker socket — see FINDINGS.md "deliberate scope decision".
+CMD="docker"
+FD="${DRYRUN_TRANSCRIPT_FD:-1}"
+
+quote_argv() {
+  local out="" a
+  for a in "$@"; do out+=" $(printf '%q' "$a")"; done
+  echo "$out"
+}
+log_line() {
+  printf '[%s] %s CMD docker%s\n' "$(date '+%Y-%m-%dT%H:%M:%S.%N%z')" "$$" "$(quote_argv "$@")" >&"$FD"
+}
+
+log_line "$@"
+sub="${1:-}"
+
+case "$sub" in
+  ps)
+    # DRYRUN_DOCKER_PS_NAMES: newline-separated container names "running" in this scenario
+    printf '%s\n' "${DRYRUN_DOCKER_PS_NAMES:-}"
+    ;;
+  images)
+    printf '%s\n' "${DRYRUN_DOCKER_IMAGES:-sha256:deadbeefcafe0001
+sha256:deadbeefcafe0002}"
+    ;;
+  inspect)
+    if [[ "$*" == *"State.Status"* ]]; then
+      printf '%s\n' "${DRYRUN_DOCKER_STATE_STATUS:-running}"
+    elif [[ "$*" == *"State.Running"* ]]; then
+      printf '%s\n' "${DRYRUN_DOCKER_STATE_RUNNING:-true}"
+    else
+      echo "{}"
+    fi
+    ;;
+  events)
+    # A real `docker events` blocks until something happens; ours returns
+    # immediately with canned output (or nothing). See FINDINGS.md runaway-loop
+    # finding for the consequence when a script polls in a `while true`.
+    printf '%s\n' "${DRYRUN_DOCKER_EVENTS:-}"
+    ;;
+  exec|run|rm|rmi|pause|unpause|start|stop|restart|kill|create)
+    : # pure mutation, logged above, no stdout contract to honor
+    ;;
+  *)
+    : # unrecognized subcommand — still logged, no canned stdout
+    ;;
+esac
+
+exit "${DRYRUN_EXITCODE_DOCKER:-0}"

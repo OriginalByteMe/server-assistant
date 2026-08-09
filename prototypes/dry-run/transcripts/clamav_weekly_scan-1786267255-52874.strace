@@ -1,0 +1,10 @@
+52896 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7fff30a0efc8 /* 143 vars */) = 0
+52897 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "ps", "--format", "{{.Names}}"], 0x58e10952e370 /* 144 vars */) = 0
+52898 execve("/usr/bin/grep", ["grep", "-q", "^ClamAV$"], 0x58e10952e370 /* 144 vars */) = 0
+52899 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x61e0642a8c30 /* 144 vars */) = 0
+52897 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52899, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52900 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52901, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52900 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52902, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52900 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52903, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52897 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52900, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52896 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52897, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---

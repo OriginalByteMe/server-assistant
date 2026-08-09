@@ -1,0 +1,180 @@
+=== dry-run: /home/noahr/Projects/server-assistant/prototypes/dry-run/real-scripts/trawl-vpn-guard/script ===
+=== scenario: <none> ===
+=== started: 2026-08-09T17:21:07+08:00 ===
+[2026-08-09T17:21:07.510083314+0800] 53237 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:07.525480547+0800] 53244 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:07.542351218+0800] 53253 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:07.568002900+0800] 53265 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:07.585323579+0800] 53275 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:07.614892635+0800] 53294 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:07.630667810+0800] 53301 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:07.646879228+0800] 53310 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:07.672731619+0800] 53322 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:07.691005745+0800] 53332 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:07.719780564+0800] 53351 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:07.734603184+0800] 53358 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:07.752186277+0800] 53367 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:07.778245227+0800] 53379 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:07.795276129+0800] 53389 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:07.822322510+0800] 53408 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:07.838142711+0800] 53415 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:07.855918688+0800] 53424 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:07.881349083+0800] 53436 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:07.899538148+0800] 53446 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:07.928460776+0800] 53465 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:07.942989292+0800] 53472 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:07.965256494+0800] 53481 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:07.995210927+0800] 53493 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.016154234+0800] 53503 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.046216731+0800] 53522 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.062422718+0800] 53529 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.080177986+0800] 53538 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.106049412+0800] 53550 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.123208807+0800] 53560 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.151279499+0800] 53579 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.167853951+0800] 53586 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.189058641+0800] 53596 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.214783922+0800] 53608 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.234405467+0800] 53618 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.273917967+0800] 53639 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.295370323+0800] 53646 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.319130620+0800] 53655 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.350119152+0800] 53668 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.374453481+0800] 53678 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.411691633+0800] 53697 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.434782408+0800] 53704 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.462507930+0800] 53714 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.503814110+0800] 53726 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.528209504+0800] 53736 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.566296376+0800] 53755 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.588711538+0800] 53762 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.615585063+0800] 53771 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.643014346+0800] 53783 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.662436255+0800] 53793 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.691856301+0800] 53812 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.707436368+0800] 53819 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.723947381+0800] 53828 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.752597114+0800] 53840 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.770447521+0800] 53850 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.798908289+0800] 53869 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.814571112+0800] 53876 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.831647591+0800] 53885 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.857730456+0800] 53897 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.876434903+0800] 53907 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:08.904528167+0800] 53926 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:08.919873753+0800] 53933 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:08.938595122+0800] 53942 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:08.966148639+0800] 53954 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:08.983768952+0800] 53964 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.013120418+0800] 53983 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.028778132+0800] 53990 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.045222419+0800] 53999 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.071363444+0800] 54011 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.090161647+0800] 54021 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.118446182+0800] 54040 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.133493967+0800] 54047 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.151272028+0800] 54056 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.177564107+0800] 54069 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.195288076+0800] 54079 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.223164812+0800] 54098 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.240137535+0800] 54105 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.258488606+0800] 54114 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.286399627+0800] 54126 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.305202850+0800] 54136 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.333773374+0800] 54155 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.349691138+0800] 54162 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.367201775+0800] 54171 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.395105873+0800] 54183 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.413993495+0800] 54193 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.443173739+0800] 54212 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.459765684+0800] 54219 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.481623174+0800] 54228 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.511390203+0800] 54240 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.530274169+0800] 54250 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.558071385+0800] 54269 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.572788086+0800] 54276 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.590329190+0800] 54285 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.617545291+0800] 54297 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.636783744+0800] 54307 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.665070333+0800] 54326 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.679222379+0800] 54333 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.697234261+0800] 54342 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.725712902+0800] 54354 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.751679277+0800] 54364 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.783705725+0800] 54383 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.802497096+0800] 54390 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.823403193+0800] 54399 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.852776530+0800] 54411 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.871616924+0800] 54421 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:09.899760904+0800] 54440 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:09.914764254+0800] 54447 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:09.931432233+0800] 54456 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:09.957426651+0800] 54468 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:09.975839919+0800] 54478 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.004089528+0800] 54497 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.021193629+0800] 54504 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.038356841+0800] 54513 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.064977359+0800] 54525 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.083098717+0800] 54535 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.115055454+0800] 54554 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.129118953+0800] 54561 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.145268715+0800] 54570 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.173290184+0800] 54582 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.193480542+0800] 54592 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.225545422+0800] 54612 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.242067566+0800] 54619 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.260297518+0800] 54628 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.288154287+0800] 54640 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.306709242+0800] 54650 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.336589335+0800] 54669 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.352305930+0800] 54676 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.369365506+0800] 54685 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.396888155+0800] 54697 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.416953958+0800] 54707 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.447644959+0800] 54726 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.463440273+0800] 54733 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.483013668+0800] 54742 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.509772467+0800] 54754 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.528599295+0800] 54764 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.558572072+0800] 54783 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.573399801+0800] 54790 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.591624193+0800] 54799 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.618677808+0800] 54811 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.638198875+0800] 54821 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.668379824+0800] 54840 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.685316669+0800] 54847 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.702903760+0800] 54856 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.731190229+0800] 54868 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.751018895+0800] 54878 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.781742257+0800] 54897 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.797611981+0800] 54904 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.816354890+0800] 54913 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.845244265+0800] 54925 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.865280823+0800] 54935 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:10.895366453+0800] 54954 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:10.911662621+0800] 54961 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:10.929910978+0800] 54970 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:10.959252325+0800] 54982 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:10.978145258+0800] 54992 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:11.008364529+0800] 55011 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:11.025439194+0800] 55018 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:11.043583876+0800] 55027 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:11.074064962+0800] 55045 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:11.096701360+0800] 55060 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:11.132668446+0800] 55086 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:11.151078579+0800] 55100 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:11.170380752+0800] 55111 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:11.200158372+0800] 55124 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:11.221264957+0800] 55134 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:11.250745496+0800] 55154 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:11.266254299+0800] 55161 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:11.284340782+0800] 55170 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:11.311762060+0800] 55182 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:11.332110275+0800] 55192 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+[2026-08-09T17:21:11.374350446+0800] 55211 CMD docker inspect -f \{\{.State.Running\}\} trawl
+[2026-08-09T17:21:11.394746942+0800] 55218 CMD docker exec binhex-qbittorrentvpn ip link show wg0
+[2026-08-09T17:21:11.417137988+0800] 55227 CMD docker exec binhex-qbittorrentvpn ip route get 1.1.1.1
+[2026-08-09T17:21:11.450900699+0800] 55239 CMD docker stop -t 5 trawl
+[2026-08-09T17:21:11.471897898+0800] 55250 CMD docker events --filter container=binhex-qbittorrentvpn --filter event=start --filter event=restart --filter event=die --filter event=stop --filter event=kill --format \{\{.Action\}\}
+=== finished: 2026-08-09T17:21:11+08:00 ===
+=== script exit code: 124 (124 = killed by timeout after 4s) ===

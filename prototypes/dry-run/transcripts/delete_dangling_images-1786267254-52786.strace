@@ -1,0 +1,18 @@
+52808 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7ffefc123288 /* 142 vars */) = 0
+52809 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "images", "--quiet", "--filter", "dangling=true"], 0x5a01ddd8b280 /* 143 vars */) = 0
+52810 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x58aeb564db20 /* 143 vars */) = 0
+52809 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52810, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52811 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52812, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52811 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52813, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52811 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52814, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52811 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52815, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52809 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52811, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52808 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52809, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52816 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "rmi", "sha256:deadbeefcafe0001", "sha256:deadbeefcafe0002"], 0x5a01ddd8b280 /* 143 vars */) = 0
+52817 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x5c1bd9ac0b20 /* 143 vars */) = 0
+52816 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52817, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52818 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52819, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52818 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52820, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52818 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52821, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52816 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52818, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52808 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52816, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---

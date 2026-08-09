@@ -1,0 +1,28 @@
+52939 execve("/usr/bin/bash", ["bash", "/home/noahr/Projects/server-assi"...], 0x7fffef51f668 /* 143 vars */) = 0
+52940 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "ps", "--format", "{{.Names}}"], 0x5f0af6ed4390 /* 144 vars */) = 0
+52941 execve("/usr/bin/grep", ["grep", "-q", "^ClamAV$"], 0x5f0af6ed4390 /* 144 vars */) = 0
+52942 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x59fbb7521c50 /* 144 vars */) = 0
+52940 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52942, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52943 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52944, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52943 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52945, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52943 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52946, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52940 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52943, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52939 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52941, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52947 execve("/usr/bin/date", ["date"], 0x5f0af6ed4390 /* 144 vars */) = 0
+52939 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52947, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52948 execve("/home/noahr/Projects/server-assistant/prototypes/dry-run/bin/docker", ["docker", "exec", "ClamAV", "clamdscan", "--multiscan", "--fdpass", "--infected", "--move=/var/lib/clamav/quarantin"..., "--log=/var/lib/clamav/scan.log", "/scandir"], 0x5f0af6ed4390 /* 144 vars */) = 0
+52949 execve("/usr/bin/date", ["date", "+%Y-%m-%dT%H:%M:%S.%N%z"], 0x5bd7e138fc50 /* 144 vars */) = 0
+52948 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52949, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52951, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52952, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52953, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52954, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52955, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52956, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52957, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52958, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52950 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52959, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52948 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52950, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52939 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52948, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
+52960 execve("/usr/bin/date", ["date"], 0x5f0af6ed5b90 /* 144 vars */) = 0
+52939 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=52960, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---
