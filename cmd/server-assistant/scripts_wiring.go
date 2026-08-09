@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -229,11 +230,20 @@ func registerScriptTools(s *mcp.Server, b *proposalBridge, exec *scripts.Executo
 			if err != nil {
 				return mcp.ToolResult{}, err
 			}
-			return mcp.ToolResult{Content: fmt.Sprintf(
-				`{"proposal_id":%q,"dashboard_url":%q,"state":%q,`+
-					`"note":"A human must approve this on the dashboard before anything runs. `+
-					`Poll get_proposal for the outcome."}`,
-				ref.ProposalID, ref.DashboardURL, ref.State)}, nil
+			// json.Marshal, not a hand-built format string: %q on a
+			// []string yields ["a" "b"] — space-separated, no commas —
+			// which is not JSON at all (check_script below shipped
+			// exactly that bug). Keys are camelCase to match every other
+			// tool on this surface; propose_script used to be the lone
+			// snake_case outlier, so a client that had parsed
+			// get_proposal's proposalId found nothing here.
+			return jsonToolResult(map[string]any{
+				"proposalId":   ref.ProposalID,
+				"dashboardUrl": ref.DashboardURL,
+				"state":        ref.State,
+				"note": "A human must approve this on the dashboard before anything runs. " +
+					"Poll get_proposal for the outcome.",
+			})
 		},
 	})
 
@@ -262,11 +272,30 @@ func registerScriptTools(s *mcp.Server, b *proposalBridge, exec *scripts.Executo
 			if err != nil {
 				return mcp.ToolResult{}, err
 			}
-			return mcp.ToolResult{Content: fmt.Sprintf(
-				`{"valid":%t,"reasons":%q,"warnings":%q}`,
-				res.Valid, res.Reasons, res.Warnings)}, nil
+			return jsonToolResult(map[string]any{
+				"valid":    res.Valid,
+				"reasons":  res.Reasons,
+				"warnings": res.Warnings,
+			})
 		},
 	})
+}
+
+// jsonToolResult marshals a tool payload instead of hand-building the JSON
+// text. A nil []string is normalised to [] rather than null: the LLM should
+// read "no reasons", not "reasons unknown" (CONVENTIONS rule 5 — a gap and
+// an empty set are different claims).
+func jsonToolResult(payload map[string]any) (mcp.ToolResult, error) {
+	for k, v := range payload {
+		if s, ok := v.([]string); ok && s == nil {
+			payload[k] = []string{}
+		}
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return mcp.ToolResult{}, fmt.Errorf("render tool result: %w", err)
+	}
+	return mcp.ToolResult{Content: string(b)}, nil
 }
 
 // unraidPrecondition is the C4 checker: immediately before a real run, any
