@@ -1,0 +1,30 @@
+All 5 MCP tool calls complete. Raw results:
+
+**1. `get_host_info`**
+- hostname: `RijkaardServer`
+- CPU percent: `2.29%` (with `detail:true`; the no-detail call moments earlier returned `22.3%` — both are live snapshots, just taken seconds apart)
+- memory used: `14,181,003,264` bytes / `33,572,700,160` bytes total (≈14.18 GB / 33.57 GB, ~42%)
+- uptime: `411.61` hours (≈17.2 days)
+- source field: **not present in the output**, with or without `detail:true`. The tool has no `source` key — I'm not going to fabricate one.
+
+**2. `get_array_state`**
+- array state: `STARTED`
+- disk count: `4` (1 parity, 2 data, 1 cache — all `smartStatus: OK`, none spun down)
+
+**3. `list_containers`**
+- container count: `41`
+
+**4. `propose_script`**
+- Script: `#!/bin/bash\ndf -h /mnt/user`
+- Rationale: *(not reported — the tool's schema only accepts a `script` field, no rationale parameter exists, so nothing was sent)*
+- proposal_id: `02072d8316ad4980ff9b6a8bf0cfe1af`
+- status: `dry_run_failed`
+- dashboard_url: `http://100.90.134.29:8099/unraid#proposal-02072d8316ad4980ff9b6a8bf0cfe1af`
+
+**5. `get_proposal`**
+- status: `dry_run_failed`
+- dry-run transcript summary: reasons array = `["(a) script exited nonzero: 1"]`, updatedAt `2026-08-09T14:00:09.612Z`. No transcript text was returned, only this failure reason.
+
+Tools called (all MCP, no non-MCP tools used): `get_host_info` (×2), `get_array_state`, `list_containers`, `propose_script`, `get_proposal`.
+
+Two things worth flagging: the dry-run for a plain `df -h /mnt/user` failed with exit code 1 rather than succeeding — likely `/mnt/user` doesn't exist or isn't mounted in whatever sandbox the dry-run executes in, worth checking if you rely on this path elsewhere. Also, the `get_proposal` tool's own description claims mutating tools aren't registered yet and every call should report `not_configured` — but it actually returned a real `dry_run_failed` state, so that description text is stale relative to current behavior.

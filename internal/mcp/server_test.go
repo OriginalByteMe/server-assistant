@@ -150,6 +150,51 @@ func TestToolsCallDetailOptIn(t *testing.T) {
 	assert.Equal(t, "Ryzen 9", v["cpuModel"])
 }
 
+// Provenance must reach the LLM, not just internal/web's DTOs. Found live
+// on 2026-08-09 via a real Claude MCP session: get_host_info returned a
+// CPU percent with no way to tell whether it came from unraid-api, emhttp
+// or procfs. It is emitted WITHOUT detail:true — a reading you cannot
+// attribute is not usable, so provenance is never a detail-only extra.
+func TestSummaryViewsCarryProvenance(t *testing.T) {
+	src := &fakeSource{
+		hostInfo: core.HostInfo{Hostname: "h", Source: core.SourceProcfs},
+		array:    core.ArrayState{State: "STARTED", Source: core.SourceEmhttp},
+		shares: []core.Share{
+			{Name: "appdata", Source: core.SourceEmhttp},
+			{Name: "isos", Source: core.SourceEmhttp},
+		},
+	}
+	s := newTestServer(src)
+
+	for _, tc := range []struct{ tool, want string }{
+		{"get_host_info", string(core.SourceProcfs)},
+		{"get_array_state", string(core.SourceEmhttp)},
+		{"list_shares", string(core.SourceEmhttp)},
+	} {
+		resp := rpcCall(t, s, "tools/call", map[string]any{"name": tc.tool, "arguments": map[string]any{}})
+		require.Nil(t, resp["error"], tc.tool)
+		text := resp["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+		var v map[string]any
+		require.NoError(t, json.Unmarshal([]byte(text), &v), tc.tool)
+		assert.Equal(t, tc.want, v["source"], "%s must report where its reading came from", tc.tool)
+	}
+}
+
+// A shares list whose rows disagree must say "mixed" rather than pick the
+// first row's source and pass it off as the whole reading's provenance.
+func TestListSharesMixedProvenanceIsNotFlattened(t *testing.T) {
+	src := &fakeSource{shares: []core.Share{
+		{Name: "appdata", Source: core.SourceUnraidAPI},
+		{Name: "isos", Source: core.SourceEmhttp},
+	}}
+	s := newTestServer(src)
+	resp := rpcCall(t, s, "tools/call", map[string]any{"name": "list_shares", "arguments": map[string]any{}})
+	text := resp["result"].(map[string]any)["content"].([]any)[0].(map[string]any)["text"].(string)
+	var v map[string]any
+	require.NoError(t, json.Unmarshal([]byte(text), &v))
+	assert.Equal(t, "mixed", v["source"])
+}
+
 func TestUnknownMethod(t *testing.T) {
 	s := newTestServer(&fakeSource{})
 	resp := rpcCall(t, s, "totally/bogus", nil)

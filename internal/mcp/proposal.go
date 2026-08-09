@@ -58,15 +58,19 @@ func (NoopProposalSink) GetProposal(context.Context, string) (ProposalStatus, er
 
 var _ ProposalSink = NoopProposalSink{}
 
-// registerProposalTools registers get_proposal, the poll side of B3. No
-// mutating tool exists yet — that is out of scope for this ticket.
+// registerProposalTools registers get_proposal, the poll side of B3. The
+// sink is NoopProposalSink only when no script registry is wired in; the
+// deployed build wires propose_script and this returns real states.
 func registerProposalTools(s *Server, sink ProposalSink, dashboardBaseURL string) {
 	s.Register(Tool{
 		Name:     "get_proposal",
 		Category: "proposals",
-		Description: "Poll a mutating call's proposal by id: {proposal_id, dashboard_url, state}. " +
-			"No mutating tool is registered in this build, so every call reports not_configured " +
-			"until the grant-model ticket (HL-SA-18) is wired in.",
+		Description: "Poll a script proposal by id: returns {proposalId, state, reasons, updatedAt}. " +
+			"States, in order: proposed, dry_run_ok | dry_run_failed | precondition_failed, " +
+			"awaiting_approval, approved | denied | expired, running, succeeded | failed. " +
+			"Nothing has touched the host before `running` — a dry run is sandboxed and " +
+			"approval only advances the proposal, it does not execute anything. " +
+			"If this build has no mutating tool wired in, the call reports not_configured instead.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

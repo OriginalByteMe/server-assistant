@@ -63,7 +63,10 @@ func registerStorageTools(s *Server, source core.UnraidSource) {
 			if err != nil {
 				return handleSourceErr(err)
 			}
-			return renderResult(map[string]any{"shares": sharesView(shares, detail)})
+			return renderResult(map[string]any{
+				"shares": sharesView(shares, detail),
+				"source": sharesSource(shares),
+			})
 		},
 	})
 }
