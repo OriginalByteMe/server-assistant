@@ -36,8 +36,15 @@ func TestDashboard_UnknownRendersDistinctlyFromDown(t *testing.T) {
 	require.Contains(t, body, `s-UNKNOWN">UNKNOWN`)
 	require.NotContains(t, body, `s-UNKNOWN">DOWN`)
 
-	// The two states have distinct style rules — not the same colour.
-	require.Contains(t, body, ".s-UNKNOWN{")
-	require.Contains(t, body, ".s-DOWN{")
-	require.NotContains(t, body, ".s-UNKNOWN,.s-DOWN{", "UNKNOWN and DOWN must not share one rule")
+	// The two states have distinct style rules — not the same colour. The
+	// rules live in the shared stylesheet the page links, served by the
+	// same handler.
+	require.Contains(t, body, `href="/static/style.css"`)
+	rec = httptest.NewRecorder()
+	Handler(vs).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/static/style.css", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	css := rec.Body.String()
+	require.Contains(t, css, ".s-UNKNOWN {")
+	require.Contains(t, css, ".s-DOWN {")
+	require.NotContains(t, css, ".s-UNKNOWN, .s-DOWN", "UNKNOWN and DOWN must not share one rule")
 }

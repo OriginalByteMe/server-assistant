@@ -14,7 +14,7 @@ GOOSE_VERSION         := v3.21.1
 SQLC_VERSION          := v1.27.0
 GOLANGCI_LINT_VERSION := v1.59.1
 
-.PHONY: build run test lint smoke sqlc tidy tools agent-result clean
+.PHONY: build run test lint smoke sqlc tidy tools agent-result clean deploy demo-setup demo-e2e
 
 build:
 	CGO_ENABLED=0 go build -trimpath -o $(BINARY) $(PKG)
@@ -33,6 +33,22 @@ lint:
 # dependency); gated behind the `smoke` build tag so `make test` never runs it.
 smoke:
 	go test -tags smoke -count=1 -run TestSmokeBoot ./cmd/server-assistant
+
+# Deploy the built binary + demo config + hardened unit to the Mini Lab dev
+# box (ADR 0023). SA_HOST overrides the default ssh alias (sa-dev).
+deploy:
+	bash scripts/deploy.sh
+
+# (Re)provision the throwaway sa-demo-* container on Unraid used by the
+# demo and demo-e2e (ADR 0023). SA_UNRAID/SA_DEMO_CONTAINER are overridable.
+demo-setup:
+	bash scripts/demo-setup.sh
+
+# M2 harness end-to-end proof against the live Mini Lab deployment: kill
+# sa-demo-web, watch the harness Diagnose/Approve/Actuate/recover (ADR
+# 0009-0023). Not part of `make test` — needs the real deployment reachable.
+demo-e2e:
+	go test -tags demo -count=1 -timeout 15m -run TestDemoE2E ./test/demo
 
 sqlc:
 	sqlc generate

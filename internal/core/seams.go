@@ -29,6 +29,11 @@ type Store interface {
 	PruneProbeSamples(ctx context.Context, service string, before time.Time) error
 	SaveCommittedStatus(ctx context.Context, cs CommittedStatus) error
 	LoadCommittedStatuses(ctx context.Context) ([]CommittedStatus, error)
+	// Harness audit (ADR 0019). Append-only accountability records; they are
+	// a separate retention class and are never touched by PruneProbeSamples.
+	SaveHarnessCycle(ctx context.Context, c HarnessCycle) error
+	ListHarnessCycles(ctx context.Context, limit int) ([]HarnessCycle, error)
+	GetHarnessCycle(ctx context.Context, id string) (HarnessCycle, error)
 	Close() error
 }
 

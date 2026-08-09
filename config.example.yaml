@@ -89,3 +89,55 @@ services:
 # telegram:
 #   bot_token: "${TELEGRAM_BOT_TOKEN}"
 #   chat_id: "${TELEGRAM_CHAT_ID}"
+
+# M2 LLM diagnosis/approval/actuation Harness (ADR 0009). Ships default-off
+# (ADR 0014): omit the whole block, or set mode: off, to run the bare v1
+# spine unchanged. mode: shadow runs full read-only Diagnosis (audited, no
+# Approval, no mutation); mode: live adds Operator Approval and at most one
+# scoped restart_container Action per incident.
+# harness:
+#   mode: "off"
+#
+#   # Local inference backend for Diagnosis (ADR 0009). base_url must be
+#   # loopback (127.0.0.1 / ::1 / localhost) unless cloud: true — the
+#   # ADR 0013 egress gate never lets Diagnosis evidence leave the box by
+#   # accident. api_key is a secret — supply via ${VAR}; omit for a local
+#   # Ollama backend that needs none.
+#   reasoner:
+#     base_url: "http://127.0.0.1:11434/v1"
+#     model: "qwen2.5:1.5b-instruct"
+#     # api_key: "${REASONER_API_KEY}"
+#     timeout: "60s"
+#     cloud: false
+#
+#   # Bounds on one Diagnosis cycle: at most max_tool_calls bounded
+#   # read-only tool calls, within wall_clock total.
+#   ceilings:
+#     max_tool_calls: 4
+#     wall_clock: "120s"
+#
+#   approval_timeout: "10m" # an un-Approved live-mode proposal expires (default-deny)
+#   cooldown: "15m"         # minimum gap between Harness cycles for the same subject
+#   outcome_window: "3m"    # how long a dispatched Action has to show recovered
+#
+#   # targets maps a configured Service name to its container name (ADR
+#   # 0018): the Reasoner only ever names a Service, never a container. Every
+#   # key must be a Service defined above; every value must be in
+#   # allow_restart once mode is live (ADR 0010: config narrows, never
+#   # widens the code-owned Action catalog).
+#   targets:
+#     demo-web: sa-demo-web
+#   allow_restart:
+#     - sa-demo-web
+#
+#   log_lines: 50 # lines fetched by the container_logs read tool
+#
+#   # Scoped write credential (ADR 0022), required in live mode and required
+#   # to be a DIFFERENT credential from the read-only ssh: block above — the
+#   # write path never reuses the read-only probe credential. Typically a
+#   # forced-command key that can only `docker restart <allow_restart name>`.
+#   write_ssh:
+#     address: "${UNRAID_ADDR}"
+#     user: "monitor-write"
+#     key_file: "/etc/server-assistant/write_key"
+#     timeout: "10s"

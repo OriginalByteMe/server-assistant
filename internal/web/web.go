@@ -5,6 +5,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
@@ -16,7 +17,7 @@ import (
 	"server-assistant/internal/core"
 )
 
-//go:embed static/htmx.min.js static/sse.js
+//go:embed static/htmx.min.js static/sse.js static/style.css
 var staticFS embed.FS
 
 // ViewSource is the dashboard's read model — satisfied by *monitor.Monitor.
@@ -31,19 +32,42 @@ type ViewSource interface {
 // Handler returns the dashboard mux: the page at /, vendored assets under
 // /static/, and the SSE stream at /events.
 func Handler(vs ViewSource) http.Handler {
+	return buildMux(vs, nil)
+}
+
+// buildMux assembles the dashboard mux for both the harness-blind
+// constructor (Handler) and the harness-aware one (HandlerWithHarness,
+// incidents.go). Routing lives in exactly one place; a nil hs simply means
+// the harness-specific patterns are never registered, so ServeMux 404s them
+// naturally and the dashboard renders no Harness panel.
+func buildMux(vs ViewSource, hs HarnessSource) *http.ServeMux {
 	assets, _ := fs.Sub(staticFS, "static")
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(assets)))
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageTmpl.Execute(w, rowsWithHistory(vs)); err != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
+		defer cancel()
+		data := pageData{
+			Rows:    rowsWithHistory(vs),
+			Harness: harnessPanelFor(hs),
+			Pending: pendingIncidentsFor(ctx, hs),
+		}
+		if err := pageTmpl.Execute(w, data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 	mux.HandleFunc("GET /events", func(w http.ResponseWriter, r *http.Request) {
 		serveSSE(w, r, vs)
 	})
+	// /api/health is always registered and nil-safe (ADR 0023): the
+	// dashboard's liveness probe works even when no harness is wired in.
+	mux.HandleFunc("GET /api/health", handleAPIHealth(hs))
+	if hs != nil {
+		registerIncidentRoutes(mux, hs)
+		registerAPIRoutes(mux, hs)
+	}
 	return mux
 }
 
@@ -126,6 +150,29 @@ func rowsWithHistory(vs ViewSource) []row {
 	return out
 }
 
+// pageData is the dashboard template's root. Harness is nil whenever no
+// HarnessSource was wired in (Handler, not HandlerWithHarness) — the
+// template renders no Harness panel in that case.
+type pageData struct {
+	Rows    []row
+	Harness *harnessPanel
+	// Pending drives the top-of-page alert banner (ADR 0023): every cycle
+	// still awaiting an Operator decision, newest first.
+	Pending []pendingIncident
+}
+
+type harnessPanel struct {
+	Mode   string
+	Halted bool
+}
+
+func harnessPanelFor(hs HarnessSource) *harnessPanel {
+	if hs == nil {
+		return nil
+	}
+	return &harnessPanel{Mode: hs.Mode().String(), Halted: hs.Halted()}
+}
+
 // sparkline renders an inline SVG latency trend coloured by the latest
 // Status — no JavaScript, no build step (ADR 0004; vendored/embedded only).
 // An empty history is a typographic placeholder so the cell is never broken
@@ -182,27 +229,32 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
 <head>
 <meta charset="utf-8">
 <title>Server Assistant</title>
+<link rel="stylesheet" href="/static/style.css">
 <script src="/static/htmx.min.js"></script>
 <script src="/static/sse.js"></script>
-<style>
- body{font:14px system-ui,sans-serif;margin:2rem;color:#1a1a1a}
- table{border-collapse:collapse;min-width:32rem}
- th,td{text-align:left;padding:.5rem .9rem;border-bottom:1px solid #ddd}
- .s-UP{color:#137333;font-weight:600}
- .s-DEGRADED{color:#b06000;font-weight:600}
- .s-DOWN{color:#c5221f;font-weight:600}
- .s-UNKNOWN{color:#5f6368;font-weight:600}
-</style>
 </head>
 <body hx-ext="sse" sse-connect="/events">
+{{- range .Pending }}
+<div class="alert-pending" role="alert"><strong>Incident awaiting your decision:</strong> {{ .Subject }} is <span class="s-{{ .TriggerStatus }}">{{ .TriggerStatus }}</span> — proposed action <strong>{{ .ProposedAction }}</strong>.<a class="btn btn-primary" href="/incidents/{{ .ID }}">Review &amp; decide</a></div>
+{{- end }}
 <h1>Server Assistant</h1>
 <table>
 <thead><tr><th>Service</th><th>Status</th><th>Latency</th><th>Last checked</th><th>Trend</th></tr></thead>
 <tbody>
-{{- range . }}
+{{- range .Rows }}
 <tr id="svc-{{ .Name }}" sse-swap="svc-{{ .Name }}"><td class="name">{{ .Name }}</td><td class="status s-{{ .Status }}">{{ .Status }}</td><td class="latency">{{ .LatencyMS }} ms</td><td class="checked">{{ .LastChecked }}</td><td class="spark">{{ .Spark }}</td></tr>
 {{- end }}
 </tbody>
 </table>
+{{- if .Harness }}
+<h2>Harness</h2>
+{{- if .Harness.Halted }}
+<p class="harness-halted">HALTED</p>
+{{- end }}
+<p>Mode: <strong>{{ .Harness.Mode }}</strong></p>
+<form class="inline" method="post" action="/api/harness/halt"><button class="btn btn-danger" type="submit">Halt</button></form>
+<form class="inline" method="post" action="/api/harness/rearm" onsubmit="return confirm('Re-arm the harness?')"><button class="btn btn-secondary" type="submit">Re-arm</button></form>
+<p><a href="/incidents">Incidents</a></p>
+{{- end }}
 </body>
 </html>`))

@@ -4,8 +4,15 @@ Monitoring + automation gateway for a single Unraid Host, running on a separate
 box. See `CONTEXT.md` (glossary), `docs/adr/` (decisions), `docs/CONVENTIONS.md`
 (engineering law), `docs/PLAN.md` (roadmap), `docs/issues/` (work items).
 
-This repository currently contains the **issue 0001** scaffold: skeleton +
-seams. v1 scope is the monitoring spine only.
+See **Current state** below for what's actually built and running today.
+
+## Current state
+
+v1 (the monitoring spine) is complete. The M2 LLM action harness — Diagnose
+→ propose → Operator Approval → Actuate → judge recovery — is also built
+and running live on the Mini Lab (ADR 0009–0022), with the dashboard as
+this milestone's Approval surface (ADR 0023; Telegram remains the eventual
+channel per ADR 0009). See `docs/DEMO.md` for the end-to-end demo runbook.
 
 ## Prerequisites
 

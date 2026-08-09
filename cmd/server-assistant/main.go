@@ -16,12 +16,16 @@ import (
 	"syscall"
 	"time"
 
+	"server-assistant/internal/actuator"
 	"server-assistant/internal/config"
 	"server-assistant/internal/core"
+	"server-assistant/internal/harness"
 	"server-assistant/internal/monitor"
 	"server-assistant/internal/notifier"
 	"server-assistant/internal/prober"
+	"server-assistant/internal/reasoner"
 	"server-assistant/internal/store"
+	"server-assistant/internal/tools"
 	"server-assistant/internal/web"
 )
 
@@ -31,7 +35,74 @@ import (
 const (
 	telegramTimeout      = 10 * time.Second
 	configReloadInterval = 2 * time.Second
+	// The Harness self-probe (ADR 0015) is a cheap reachability check on the
+	// Reasoner and the write credential, so it polls far slower than a
+	// Service and tolerates a slow local model before it reads DEGRADED.
+	harnessProbePoll      = 60 * time.Second
+	harnessProbeThreshold = 30 * time.Second
 )
+
+// sshRunnerFor builds an SSH Runner from one credential block. Two exist by
+// design (ADR 0022): the shared read-only probe key and the harness's scoped
+// write key. Neither the key nor the password is ever logged (rule 8).
+func sshRunnerFor(c config.SSHConfig) (prober.Runner, error) {
+	var keyPEM []byte
+	if c.KeyFile != "" {
+		b, err := os.ReadFile(c.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("read ssh key_file: %w", err)
+		}
+		keyPEM = b
+	}
+	hostKey, insecure, err := prober.ParseHostKey(c.HostKey)
+	if err != nil {
+		return nil, err
+	}
+	if insecure {
+		slog.Warn("ssh host key not pinned — accepting any host key (ADR 0003 defers hardening to M2); set host_key to pin", "address", c.Address)
+	}
+	return prober.NewSSHClient(prober.SSHConfig{
+		Address:         c.Address,
+		User:            c.User,
+		Password:        c.Password,
+		PrivateKey:      keyPEM,
+		Timeout:         c.ProbeTimeout(),
+		HostKeyCallback: hostKey,
+	}), nil
+}
+
+// harnessSecrets is everything this process holds that must never appear in a
+// prompt. Scrubbing is fail-closed at the Reasoner seam (ADR 0013): if any of
+// these survives into a payload, the Diagnosis is abandoned rather than sent.
+func harnessSecrets(cfg *config.Config) []string {
+	var out []string
+	add := func(s string) {
+		if len(s) >= 2 {
+			out = append(out, s)
+		}
+	}
+	if cfg.SSH != nil {
+		add(cfg.SSH.Password)
+	}
+	if cfg.Harness != nil {
+		add(cfg.Harness.Reasoner.APIKey)
+		if cfg.Harness.WriteSSH != nil {
+			add(cfg.Harness.WriteSSH.Password)
+		}
+	}
+	add(cfg.Telegram.BotToken)
+	return out
+}
+
+// dashboard wires the HTTP surface. With no Harness the v1 dashboard is served
+// unchanged; with one, the incident/Approval routes attach behind the same
+// handler (ADR 0023 — the dashboard is this milestone's Approval surface).
+func dashboard(mon *monitor.Monitor, hs *harness.Harness) http.Handler {
+	if hs == nil {
+		return web.Handler(mon)
+	}
+	return web.HandlerWithHarness(mon, hs)
+}
 
 func reloadKnobs(src config.Source, ctx context.Context) ([]monitor.Service, error) {
 	cfg, err := src.Load(ctx)
@@ -105,29 +176,11 @@ func run() error {
 	// container Service / ssh_metrics Host exists without this block).
 	var sshRunner prober.Runner
 	if cfg.SSH != nil {
-		var keyPEM []byte
-		if cfg.SSH.KeyFile != "" {
-			b, rerr := os.ReadFile(cfg.SSH.KeyFile)
-			if rerr != nil {
-				return fmt.Errorf("read ssh key_file: %w", rerr) // never logs the key
-			}
-			keyPEM = b
+		runner, rerr := sshRunnerFor(*cfg.SSH)
+		if rerr != nil {
+			return rerr
 		}
-		hostKey, insecure, herr := prober.ParseHostKey(cfg.SSH.HostKey)
-		if herr != nil {
-			return herr
-		}
-		if insecure {
-			slog.Warn("ssh host key not pinned — accepting any host key (ADR 0003 defers hardening to M2); set ssh.host_key to pin")
-		}
-		sshRunner = prober.NewSSHClient(prober.SSHConfig{
-			Address:         cfg.SSH.Address,
-			User:            cfg.SSH.User,
-			Password:        cfg.SSH.Password,
-			PrivateKey:      keyPEM,
-			Timeout:         cfg.SSH.ProbeTimeout(),
-			HostKeyCallback: hostKey,
-		})
+		sshRunner = runner
 		slog.Info("ssh probes enabled", "host", cfg.SSH.Address, "user", cfg.SSH.User) // never the secret (rule 8)
 	}
 
@@ -153,7 +206,84 @@ func run() error {
 		})
 	}
 
+	// M2 Harness (ADR 0009). Default-off (ADR 0014): with no harness block,
+	// or mode off, nothing here changes the v1 spine's behaviour.
+	var hs *harness.Harness
+	if mode, merr := core.ParseHarnessMode(cfg.Harness.Mode); merr != nil {
+		return merr
+	} else if mode != core.HarnessOff {
+		if sshRunner == nil {
+			return errors.New("harness enabled but no ssh: block — the read-only Diagnosis tools need it")
+		}
+		// Scoped write credential (ADR 0022): a leaked read key must never be
+		// able to actuate. Absent in shadow mode, where nothing is dispatched.
+		var writeRunner prober.Runner
+		if cfg.Harness.WriteSSH != nil {
+			runner, werr := sshRunnerFor(*cfg.Harness.WriteSSH)
+			if werr != nil {
+				return werr
+			}
+			writeRunner = runner
+			slog.Info("harness write credential wired", "host", cfg.Harness.WriteSSH.Address) // never the key (rule 8)
+		}
+		var act core.Actuator
+		if writeRunner != nil {
+			act = actuator.NewSSH(writeRunner, cfg.Harness.AllowRestart)
+		}
+		hs = harness.New(harness.Options{
+			Mode:  mode,
+			Store: st,
+			Reasoner: reasoner.New(reasoner.Config{
+				BaseURL: cfg.Harness.Reasoner.BaseURL,
+				Model:   cfg.Harness.Reasoner.Model,
+				APIKey:  cfg.Harness.Reasoner.APIKey,
+				Timeout: cfg.Harness.Reasoner.Timeout,
+				// Everything the process holds that must never reach a
+				// prompt (ADR 0013, fail-closed).
+				Secrets: harnessSecrets(cfg),
+			}),
+			Actuator: act,
+			Tools: []core.ReadTool{
+				tools.ContainerStatus(sshRunner, cfg.Harness.Targets),
+				tools.ContainerLogs(sshRunner, cfg.Harness.Targets, cfg.Harness.LogLines),
+				tools.StatusHistory(st, cfg.Harness.Ceilings.MaxToolCalls*10),
+			},
+			Targets:         cfg.Harness.Targets,
+			MaxToolCalls:    cfg.Harness.Ceilings.MaxToolCalls,
+			WallClock:       cfg.Harness.Ceilings.WallClock,
+			ApprovalTimeout: cfg.Harness.ApprovalTimeout,
+			Cooldown:        cfg.Harness.Cooldown,
+			OutcomeWindow:   cfg.Harness.OutcomeWindow,
+		})
+		// The Harness is itself a monitored subject on the v1 spine (ADR
+		// 0015): its dependencies are probed, debounced, and Alerted exactly
+		// like any Service. Added programmatically, not from config — a
+		// hot-reload leaves it alone (Monitor.Reconfigure skips unknown
+		// subjects).
+		svcs = append(svcs, monitor.Service{
+			Name:      "harness",
+			Prober:    hs.Prober(),
+			Threshold: harnessProbeThreshold,
+			Poll:      harnessProbePoll,
+			DebounceN: 2,
+		})
+		// Resolve any cycle whose owning goroutine died with a previous
+		// process. Must run before the Monitor can feed ObserveCommit, or a
+		// restart leaves an Approval pending forever with nobody to time it
+		// out (ADR 0019: the audit record has to stay truthful).
+		if rerr := hs.Reconcile(ctx); rerr != nil {
+			return fmt.Errorf("harness reconcile: %w", rerr)
+		}
+		slog.Info("harness enabled", "mode", mode.String(), "targets", len(cfg.Harness.Targets))
+	}
+
 	mon := monitor.New(st, notify, svcs)
+	// The Harness observes committed Status after every v1 outcome has landed
+	// (persist + Alert + dashboard). Sink errors cannot change a monitoring
+	// result.
+	if hs != nil {
+		mon.SetCommitSink(hs.Sink())
+	}
 	// Rolling Probe-sample retention (ARK-9 / ADR 0002): bound history so
 	// storage cannot grow unbounded. Always set (config defaults to 24h).
 	mon.SetRetention(cfg.History.Window())
@@ -185,7 +315,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           web.Handler(mon),
+		Handler:           dashboard(mon, hs),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

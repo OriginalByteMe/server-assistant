@@ -1,0 +1,20 @@
+# sa-triage — the pinned local Diagnosis model for the Mini Lab demo.
+#
+# Built with:  ollama create sa-triage -f deploy/Modelfile.sa-triage
+#
+# num_thread 3 is load-bearing, not a nicety. The deploy LXC has 3 CPUs, but
+# ollama sizes its thread pool from the host's CPU count (4 on the N100). The
+# resulting OpenMP oversubscription inside the cgroup collapsed token
+# generation by ~40x:
+#
+#   default (n_threads=4 on 3 CPUs) : 0.5 tok/s  — 3m14s for one triage reply
+#   num_thread=3                    : 19  tok/s  — 6.8s for the same reply
+#
+# Measured on the deployed box, not inferred. If the container's CPU count
+# changes, change this to match it.
+FROM qwen2.5:1.5b-instruct
+
+PARAMETER num_thread 3
+PARAMETER num_ctx 2048
+# Triage must be reproducible; this is a classifier, not a writer.
+PARAMETER temperature 0.1

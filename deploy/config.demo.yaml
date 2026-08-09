@@ -1,0 +1,93 @@
+# Server Assistant — Mini Lab demo config (M2 harness end-to-end demo).
+# Deployed by scripts/deploy.sh to /etc/server-assistant/config.yaml on the
+# sa-dev box. Every key below is verified against internal/config/config.go —
+# do not add keys that aren't in that file's yaml tags.
+
+schema_version: 1
+
+# Dashboard binds all interfaces; reachable only over the private Mini Lab
+# network / Tailscale (ADR 0023 — no auth on this surface yet).
+http_addr: "0.0.0.0:8080"
+
+database:
+  # Runtime state + full harness audit trail (ADR 0019). Never config.
+  path: "/var/lib/server-assistant/state.db"
+
+# The one monitored Service for this demo: the throwaway sa-demo-web
+# container on Unraid, probed by container state over SSH (needs the ssh
+# block below). poll_interval/debounce_n are tightened from the example
+# defaults (30s/3) so the demo's DOWN commit and later UP recovery aren't
+# slow to observe.
+services:
+  - name: demo-web
+    container: sa-demo-web
+    poll_interval: "5s"
+    debounce_n: 2
+
+# Shared READ-ONLY SSH credential (ADR 0022 split: this key can only run the
+# forced read-only command on the Unraid box). Used for the container-state
+# Probe above and for the harness's read-only Diagnosis tools (ADR 0009).
+ssh:
+  address: "192.168.68.57:22"
+  user: "root"
+  key_file: "/etc/server-assistant/read_key"
+  timeout: "10s"
+
+# The single Unraid Host, gating demo-web UNKNOWN (never DOWN) if the box
+# itself goes unreachable (ADR 0005).
+host:
+  name: unraid
+  address: "192.168.68.57:22"
+  poll_interval: "30s"
+  timeout: "5s"
+  debounce_n: 3
+
+# No telegram block: ADR 0023 — the dashboard is this milestone's Approval
+# surface, Telegram is not provisioned for the Mini Lab demo.
+
+# M2 LLM harness (ADR 0009). mode: live means Diagnosis + Approval + real
+# Actuation are all active (ADR 0014 ramp already past shadow for this demo).
+harness:
+  mode: "live"
+
+  # Local Ollama on the sa-dev box itself — no cloud egress (ADR 0013).
+  # sa-triage is a Modelfile derivative of qwen2.5:1.5b-instruct pinning
+  # num_thread 3. The LXC has 3 CPUs but ollama autodetects the host's 4, and
+  # the resulting OpenMP oversubscription collapsed generation from ~19 tok/s
+  # to 0.5 tok/s (measured: 6.8s vs 3m14s for the same triage prompt).
+  reasoner:
+    base_url: "http://127.0.0.1:11434/v1"
+    model: "sa-triage"
+    timeout: "120s"
+
+  # Hard ceilings on the read-only Diagnosis loop (ADR 0009 fail-closed).
+  ceilings:
+    max_tool_calls: 3
+    wall_clock: "150s"
+
+  # Approval/actuation pacing for the demo run.
+  approval_timeout: "5m"
+  cooldown: "30s"
+  outcome_window: "90s"
+
+  # Service name -> container name resolution the harness uses when the LLM
+  # reasons in domain terms (ADR 0018); mirrors the services block above.
+  targets:
+    demo-web: sa-demo-web
+
+  # Closed Action catalog for this demo (ADR 0011): restart_container only,
+  # and only ever against this one container.
+  allow_restart:
+    - sa-demo-web
+
+  # Lines of container log fed to Diagnosis's log-reading tool.
+  log_lines: 30
+
+  # Scoped WRITE credential (ADR 0022): identical to the read ssh block
+  # above except the key, which is forced-command-restricted to
+  # `docker restart sa-demo-*` on the Unraid side.
+  write_ssh:
+    address: "192.168.68.57:22"
+    user: "root"
+    key_file: "/etc/server-assistant/write_key"
+    timeout: "10s"

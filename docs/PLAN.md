@@ -80,3 +80,53 @@ LLM action harness, two-way Approval, push agent on Unraid, dedicated TSDB,
 UI-editable config, real authentication/security hardening. Each attaches
 behind an existing v1 seam per ADR 0006; the security gate (ADR 0003) blocks
 M2 until the Host-credential trust model is designed.
+
+
+## M2 — Harness
+
+M2 attaches the LLM action harness behind the v1 seams (ADR 0006), scoped
+for a self-contained Mini Lab demo: kill `sa-demo-web` on Unraid, watch the
+harness Diagnose (read-only), propose `restart_container`, wait for Operator
+Approval on the dashboard, Actuate over the scoped write SSH credential, and
+judge the recovery `recovered`. Slices actually built:
+
+- **Store audit table** — `internal/store` migration 00004 + queries +
+  `Store.SaveHarnessCycle`/`ListHarnessCycles`/`GetHarnessCycle`: the durable,
+  untruncated per-cycle audit trail (ADR 0019).
+- **Reasoner** — `internal/reasoner.Client`, an OpenAI-compatible chat+tool-call
+  `core.Reasoner` over stdlib `net/http`, local-Ollama by default with cloud
+  opt-in via config (ADR 0009, ADR 0013).
+- **Read tools + Actuator** — `internal/tools` (`ContainerStatus`,
+  `ContainerLogs`, `StatusHistory` as `core.ReadTool`s bound to the read-only
+  SSH credential) and `internal/actuator.SSH`, a `core.Actuator` scoped to the
+  closed restart-container catalog over the separate write SSH credential
+  (ADR 0010, ADR 0011, ADR 0018, ADR 0021, ADR 0022).
+- **Cycle engine** — `internal/harness.Harness`: read-only agentic Diagnosis,
+  quarantined mutation behind Approval, single-flight, sticky fail-closed
+  halt/re-arm, cooldown, and outcome judgement (ADR 0009, ADR 0014, ADR 0016,
+  ADR 0017, ADR 0020). `Reconcile` runs once at startup and fail-closed
+  resolves any cycle a prior process left non-terminal — pending-Approval
+  becomes `expired`, dispatched-but-unobserved becomes `action_failed` — so
+  a restart can never leave an incident stuck claiming an Operator can
+  still act on it (ADR 0019).
+- **Dashboard Approval surface** — `internal/web`'s `HarnessSource` seam plus
+  the `/api/incidents*`, `/api/harness/*` JSON API and `/incidents` HTML
+  routes: Alert presentation, Approve/Deny, and Halt/Re-arm on the existing
+  dashboard, standing in for the not-yet-provisioned Telegram channel for
+  this milestone only (ADR 0023). Approve/Deny persists the Operator's
+  decision synchronously, before the cycle goroutine is signalled, so a
+  crash between decision and dispatch can never silently lose it.
+- **Config** — `internal/config.Harness`/`ReasonerConfig`/`Ceilings` wired
+  into `Config` (rule 6: config is the only source of truth), plus
+  `deploy/config.demo.yaml` for the Mini Lab deployment and a hardened
+  `deploy/server-assistant.service` unit.
+
+**Done when:** `make demo-e2e` passes against the live Mini Lab deployment
+(`scripts/deploy.sh` to the sa-dev box, `scripts/demo-setup.sh` on Unraid) —
+killing `sa-demo-web` drives a full commit-DOWN → Diagnose → propose →
+Approve → Actuate → commit-UP → `recovered` cycle, conforming to ADR
+0009–0023.
+
+**Proven end to end:** `make demo-e2e` passes against the live Mini Lab
+deployment with a local model (`sa-triage` on Ollama) — not mocked, not
+shadow-mode. See `docs/DEMO.md` for the runbook.

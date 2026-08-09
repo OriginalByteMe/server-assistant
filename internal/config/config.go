@@ -7,12 +7,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
+
+	"server-assistant/internal/core"
 )
 
 // SupportedSchemaVersion is the only config schema version this build accepts.
@@ -38,6 +42,10 @@ type Config struct {
 	// pointer: always present with a default so storage is bounded even
 	// unconfigured (ADR 0002).
 	History HistoryConfig `yaml:"history"`
+	// Harness is the M2 LLM diagnosis/approval/actuation block (ADR 0009).
+	// It ships default-off (ADR 0014): after Load the pointer is always
+	// non-nil, and an absent section resolves to Mode off.
+	Harness *Harness `yaml:"harness"`
 }
 
 // HistoryConfig bounds Probe-sample retention. Samples older than Window are
@@ -139,6 +147,61 @@ func (s ServiceConfig) ProbeTimeout() time.Duration { return s.probeTimeout }
 // Threshold is the latency above which a reachable Service is DEGRADED.
 func (s ServiceConfig) Threshold() time.Duration { return s.threshold }
 
+// ReasonerConfig configures the M2 Diagnosis inference backend (ADR 0009).
+// api_key is a secret — supply via ${VAR}, expanded in resolveSecrets like
+// every other secret-bearing field (rule 7), never logged (rule 8).
+type ReasonerConfig struct {
+	BaseURL string        `yaml:"base_url"`
+	Model   string        `yaml:"model"`
+	APIKey  string        `yaml:"api_key"`
+	Timeout time.Duration `yaml:"timeout"`
+	// Cloud must be true whenever base_url resolves off-box (ADR 0013
+	// egress gate): Diagnosis evidence never leaves the host by accident.
+	Cloud bool `yaml:"cloud"`
+}
+
+// Ceilings bound one Diagnosis cycle (ADR 0009): at most MaxToolCalls
+// bounded read-only ReadTool invocations, within WallClock wall-clock time
+// total.
+type Ceilings struct {
+	MaxToolCalls int           `yaml:"max_tool_calls"`
+	WallClock    time.Duration `yaml:"wall_clock"`
+}
+
+// Harness is the M2 LLM diagnosis/approval/actuation block (ADR 0009). It
+// ships default-off (ADR 0014): Config.Harness is always non-nil after Load,
+// resolving to Mode "off" when the section is omitted.
+//
+// Unlike Service/Host/SSH above, the duration fields here decode straight
+// from Go duration strings ("30s") into time.Duration via go-yaml's native
+// support (confirmed in the pinned github.com/goccy/go-yaml — it already
+// calls time.ParseDuration for a time.Duration-typed field), rather than a
+// hand-parsed string + private-field + differently-named-accessor pair.
+// That's a deliberate, one-time deviation from rule 3's "no library magic"
+// for this block only: it is the sole way to expose these fields under
+// their exact contracted names (a field and a same-named method cannot
+// coexist on one type), which cross-package callers depend on directly.
+type Harness struct {
+	Mode            string         `yaml:"mode"`
+	Reasoner        ReasonerConfig `yaml:"reasoner"`
+	Ceilings        Ceilings       `yaml:"ceilings"`
+	ApprovalTimeout time.Duration  `yaml:"approval_timeout"`
+	Cooldown        time.Duration  `yaml:"cooldown"`
+	OutcomeWindow   time.Duration  `yaml:"outcome_window"`
+	// Targets maps a configured Service name to its container name (ADR
+	// 0018 resolution): the Reasoner only ever names a Service, never a
+	// container/host/command.
+	Targets map[string]string `yaml:"targets"`
+	// AllowRestart narrows the code-owned Action catalog (ADR 0010): config
+	// may only shrink what restart_container is allowed to touch, never
+	// widen it.
+	AllowRestart []string `yaml:"allow_restart"`
+	LogLines     int      `yaml:"log_lines"`
+	// WriteSSH is the scoped write credential (ADR 0022), distinct from the
+	// shared read-only ssh: block. Required in live mode.
+	WriteSSH *SSHConfig `yaml:"write_ssh"`
+}
+
 // Source is the ConfigSource seam: it yields a validated Config. Hot-reload
 // (issue 0008) is a later implementation behind this same seam.
 type Source interface {
@@ -208,6 +271,17 @@ func (c *Config) resolveSecrets() error {
 		c.SSH.Password = r.expand(c.SSH.Password)
 		c.SSH.KeyFile = r.expand(c.SSH.KeyFile)
 	}
+	if c.Harness != nil {
+		// api_key is a secret; write_ssh mirrors the shared ssh: block's
+		// secret-bearing fields (rule 7).
+		c.Harness.Reasoner.APIKey = r.expand(c.Harness.Reasoner.APIKey)
+		if c.Harness.WriteSSH != nil {
+			c.Harness.WriteSSH.Address = r.expand(c.Harness.WriteSSH.Address)
+			c.Harness.WriteSSH.User = r.expand(c.Harness.WriteSSH.User)
+			c.Harness.WriteSSH.Password = r.expand(c.Harness.WriteSSH.Password)
+			c.Harness.WriteSSH.KeyFile = r.expand(c.Harness.WriteSSH.KeyFile)
+		}
+	}
 	return r.err()
 }
 
@@ -272,6 +346,15 @@ func (c *Config) validate() error {
 			return fmt.Errorf("duplicate service name %q", c.Services[i].Name)
 		}
 		seen[c.Services[i].Name] = struct{}{}
+	}
+	// Harness ships default-off (ADR 0014): allocate it here so the pointer
+	// is never nil after Load, then resolve its own knobs plus the
+	// cross-section checks that only make sense once Services are known.
+	if c.Harness == nil {
+		c.Harness = &Harness{}
+	}
+	if err := c.Harness.resolve(seen, c.SSH); err != nil {
+		return err
 	}
 	if c.Host != nil {
 		if err := c.Host.resolve(); err != nil {
@@ -416,6 +499,145 @@ func (h *HostConfig) resolve() error {
 	}
 	if h.DebounceN < 1 {
 		return fmt.Errorf("host debounce_n must be >= 1, got %d", h.DebounceN)
+	}
+	return nil
+}
+
+// containerNameRe matches the safe character set for a Docker container name
+// and for the Service key naming it in targets/allow_restart. The Actuator
+// interpolates these into an SSH restart command, so anything outside
+// [A-Za-z0-9_.-] is rejected at load (rule 6).
+var containerNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
+// isLoopbackHost reports whether host is one of the ADR 0013 loopback
+// spellings. No net.ParseIP: the ADR names an exact literal set, not "any IP
+// that happens to be loopback".
+func isLoopbackHost(host string) bool {
+	switch host {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	default:
+		return false
+	}
+}
+
+// resolve validates the Harness block and applies defaults for every
+// omitted optional knob (rule 6). serviceNames is the set of configured
+// Service names — a targets key must name one of them (ADR 0018); readSSH
+// is the shared read-only ssh: block, compared against write_ssh under
+// ADR 0022.
+func (h *Harness) resolve(serviceNames map[string]struct{}, readSSH *SSHConfig) error {
+	mode, err := core.ParseHarnessMode(h.Mode)
+	if err != nil {
+		return fmt.Errorf("harness: %w", err)
+	}
+
+	if h.Reasoner.Timeout == 0 {
+		h.Reasoner.Timeout = 60 * time.Second
+	}
+	if h.Ceilings.MaxToolCalls == 0 {
+		h.Ceilings.MaxToolCalls = 4
+	}
+	if h.Ceilings.WallClock == 0 {
+		h.Ceilings.WallClock = 120 * time.Second
+	}
+	if h.ApprovalTimeout == 0 {
+		h.ApprovalTimeout = 10 * time.Minute
+	}
+	if h.Cooldown == 0 {
+		h.Cooldown = 15 * time.Minute
+	}
+	if h.OutcomeWindow == 0 {
+		h.OutcomeWindow = 3 * time.Minute
+	}
+	if h.LogLines == 0 {
+		h.LogLines = 50
+	}
+
+	// Ceilings, timeouts, and target naming are checked regardless of mode:
+	// an off/shadow block that is already broken should not pass silently
+	// and only blow up the moment an operator flips mode: live.
+	if h.Ceilings.MaxToolCalls < 1 || h.Ceilings.MaxToolCalls > 20 {
+		return fmt.Errorf("harness: ceilings.max_tool_calls must be 1..20, got %d", h.Ceilings.MaxToolCalls)
+	}
+	if h.LogLines < 1 || h.LogLines > 200 {
+		return fmt.Errorf("harness: log_lines must be 1..200, got %d", h.LogLines)
+	}
+	if h.Ceilings.WallClock <= 0 {
+		return fmt.Errorf("harness: ceilings.wall_clock must be positive, got %s", h.Ceilings.WallClock)
+	}
+	if h.ApprovalTimeout <= 0 {
+		return fmt.Errorf("harness: approval_timeout must be positive, got %s", h.ApprovalTimeout)
+	}
+	if h.Cooldown <= 0 {
+		return fmt.Errorf("harness: cooldown must be positive, got %s", h.Cooldown)
+	}
+	if h.OutcomeWindow <= 0 {
+		return fmt.Errorf("harness: outcome_window must be positive, got %s", h.OutcomeWindow)
+	}
+	if h.Reasoner.Timeout <= 0 {
+		return fmt.Errorf("harness: reasoner.timeout must be positive, got %s", h.Reasoner.Timeout)
+	}
+
+	for svc, container := range h.Targets {
+		if _, ok := serviceNames[svc]; !ok {
+			return fmt.Errorf("harness: targets key %q does not name a configured service", svc)
+		}
+		if !containerNameRe.MatchString(container) {
+			return fmt.Errorf("harness: targets[%q] value %q has invalid characters", svc, container)
+		}
+	}
+	for _, name := range h.AllowRestart {
+		if !containerNameRe.MatchString(name) {
+			return fmt.Errorf("harness: allow_restart entry %q has invalid characters", name)
+		}
+	}
+
+	if mode == core.HarnessOff {
+		return nil
+	}
+
+	if h.Reasoner.BaseURL == "" {
+		return errors.New("harness: reasoner.base_url is required when mode is not off")
+	}
+	if h.Reasoner.Model == "" {
+		return errors.New("harness: reasoner.model is required when mode is not off")
+	}
+	u, err := url.Parse(h.Reasoner.BaseURL)
+	if err != nil || !u.IsAbs() || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("harness: reasoner.base_url must be an absolute http(s) URL, got %q", h.Reasoner.BaseURL)
+	}
+	loopback := isLoopbackHost(u.Hostname())
+	if loopback && h.Reasoner.Cloud {
+		return errors.New("harness: reasoner.cloud must be false for a loopback base_url (ADR 0013 egress gate)")
+	}
+	if !loopback && !h.Reasoner.Cloud {
+		return errors.New("harness: reasoner.base_url resolves off-box, which requires cloud: true (ADR 0013 egress gate)")
+	}
+
+	if mode != core.HarnessLive {
+		return nil
+	}
+
+	allowed := make(map[string]struct{}, len(h.AllowRestart))
+	for _, name := range h.AllowRestart {
+		allowed[name] = struct{}{}
+	}
+	for svc, container := range h.Targets {
+		if _, ok := allowed[container]; !ok {
+			return fmt.Errorf("harness: live mode target %q (%s) is not in allow_restart (ADR 0010: config narrows, never widens)", svc, container)
+		}
+	}
+
+	if h.WriteSSH == nil {
+		return errors.New("harness: write_ssh is required in live mode")
+	}
+	if err := h.WriteSSH.resolve(); err != nil {
+		return fmt.Errorf("harness: write_ssh: %w", err)
+	}
+	if readSSH != nil && h.WriteSSH.User == readSSH.User &&
+		h.WriteSSH.KeyFile == readSSH.KeyFile && h.WriteSSH.Password == readSSH.Password {
+		return errors.New("harness: write_ssh must be a distinct credential from ssh: (ADR 0022 — the write path never reuses the read-only probe credential)")
 	}
 	return nil
 }
