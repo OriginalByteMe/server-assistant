@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Server Assistant — Community Applications template.
+
+  Fields and the <Config> attribute set (Name/Target/Default/Mode/
+  Description/Type/Display/Required/Mask) are taken directly from Unraid's
+  own template documentation, not invented:
+    - https://ca.unraid.net/submit/help/repository-xml (Docker app template
+      minimum: Name/Repository/Registry/Network/MyIP/Shell/Privileged/
+      Support/Project/Overview/Description/Category/WebUI/TemplateURL)
+    - https://ca.unraid.net/submit/help/xml-field-reference (public field
+      catalog: confirms <Config> is a supported "advanced" field, plus the
+      full metadata field list used below)
+    - https://raw.githubusercontent.com/unraid/unraid-community-apps-starter/main/templates/example-app.xml
+      (the official starter template — the only place the <Config>
+      attribute names and the Port/Path/Variable Type values are shown
+      concretely: `<Config Name="..." Target="..." Default="..." Mode="..."
+      Description="..." Type="..." Display="..." Required="..." Mask="..."/>`)
+  One attribute is a documented ecosystem convention rather than something
+  spelled out in either of the two official docs above: Mask="true" on the
+  API-key Variable, to hide its value in the CA "add container" form. Every
+  other field/attribute here traces to one of the three sources above.
+
+  Every port/path/variable here matches deploy/docker/docker-compose.yml
+  exactly. Distribution note: this template's <Repository> assumes a
+  published `ghcr.io/OriginalByteMe/server-assistant` image. Publishing to
+  that registry (a CI job) is not part of this packaging ticket —
+  scripts/deploy-unraid.sh builds the image locally and ships it directly
+  to rijkaardserver for the human-approved rollout; wiring an actual CI
+  publish step for full Community Applications discoverability is tracked
+  as a follow-up on HL-SA-20, not done here.
+-->
+<Container version="2">
+  <Name>server-assistant</Name>
+  <Repository>ghcr.io/OriginalByteMe/server-assistant:latest</Repository>
+  <Registry>https://ghcr.io</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+
+  <Support>https://github.com/OriginalByteMe/server-assistant/issues</Support>
+  <Project>https://github.com/OriginalByteMe/server-assistant</Project>
+  <Overview>Unraid-resident diagnostic and control dashboard, plus a stateless MCP endpoint for your own LLM. No inference ships in the container itself.</Overview>
+  <Description>Server Assistant reads Unraid array/share/container/host state (via unraid-api's GraphQL and a read-only /var/local/emhttp mount) and exposes it two ways: a live dashboard for humans, and a stateless MCP tool/resource surface for an LLM client you already run. Every mutating action goes through a two-phase human Approval gate, hash-bound argument-free scripts, and a mandatory dry run before it can touch the host — see the Support link for the full safety model. The container mounts /var/run/docker.sock read-only for future container-control actions; this is a distribution convenience, not a security boundary — read the docker-compose.yml comment or the project's issue #52 before relying on container isolation alone.</Description>
+  <Category>Tools:Utilities Tools:System</Category>
+  <WebUI>http://[IP]:[PORT:8080]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/OriginalByteMe/server-assistant/main/deploy/unraid/server-assistant.xml</TemplateURL>
+  <Icon></Icon>
+
+  <!-- Ports -->
+  <Config Name="WebUI" Target="8080" Default="8099" Mode="tcp" Description="Dashboard/MCP HTTP port. Default host port is 8099, not 8080 — 8080 is commonly already taken by other containers (binhex-qbittorrentvpn on the reference host); pick any free host port." Type="Port" Display="always" Required="true" Mask="false">8099</Config>
+
+  <!-- Paths -->
+  <Config Name="Unraid INI State" Target="/var/local/emhttp" Default="/var/local/emhttp" Mode="ro" Description="Read-only fallback state source (array/disk/share INI files). Never write here." Type="Path" Display="always" Required="true" Mask="false">/var/local/emhttp</Config>
+  <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="ro" Description="Root-equivalent even mounted read-only: a process reaching this socket could run a privileged container and control the whole host. This is NOT a sandbox boundary — the real safety rails are the app's own Approval gate, hash-bound scripts, and mandatory dry run. See docker-compose.yml's comment or issue #52 before assuming isolation." Type="Path" Display="advanced" Required="true" Mask="false">/var/run/docker.sock</Config>
+  <Config Name="Config File" Target="/etc/server-assistant/config.yaml" Default="/mnt/user/appdata/server-assistant/config.yaml" Mode="ro" Description="YAML config (schema in internal/config). Copy deploy/docker/config.docker.yaml here and edit graphql_url for your LAN." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/server-assistant/config.yaml</Config>
+  <Config Name="Data" Target="/var/lib/server-assistant" Default="/mnt/user/appdata/server-assistant/data" Mode="rw" Description="SQLite state and the harness audit trail. Persisted across container recreation." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/server-assistant/data</Config>
+
+  <!-- Variables -->
+  <Config Name="Unraid API Key" Target="UNRAID_API_KEY" Default="" Mode="" Description="VIEWER-role unraid-api key. Create with: unraid-api apikey --create --name server-assistant --roles VIEWER (see docs/DEPLOY-UNRAID.md). Never share or commit this value." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+</Container>

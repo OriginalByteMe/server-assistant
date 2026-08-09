@@ -37,7 +37,7 @@ type HarnessSource interface {
 // keeps working unchanged for the harness-blind caller in main.go; both
 // delegate to buildMux (web.go) so routing lives in exactly one place.
 func HandlerWithHarness(vs ViewSource, hs HarnessSource) http.Handler {
-	return buildMux(vs, hs)
+	return buildMux(vs, hs, nil, nil)
 }
 
 func registerIncidentRoutes(mux *http.ServeMux, hs HarnessSource) {

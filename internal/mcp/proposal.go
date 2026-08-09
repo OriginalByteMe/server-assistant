@@ -1,0 +1,100 @@
+package mcp
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+// ProposalRef is the B3 fast-return shape: a mutating tool call never
+// blocks on human approval — it returns this immediately. The LLM learns
+// the outcome by polling get_proposal(id), never a push.
+//
+// Shape agreed over hub with ScriptRegistry (HL-SA-18, the script-grant
+// ticket that implements this seam for real) so both sides compile against
+// the identical interface without a later reconciliation.
+type ProposalRef struct {
+	ProposalID   string
+	DashboardURL string
+	State        string
+}
+
+// ProposalStatus is what GetProposal returns while polling. Reasons
+// carries the B4 "allowed alternatives"/explanation once a proposal moves
+// out of pending (e.g. why a dry run failed, why it was denied).
+type ProposalStatus struct {
+	ProposalID string
+	State      string
+	Reasons    []string
+	UpdatedAt  time.Time
+}
+
+// ProposalSink is the seam HL-SA-18 implements with the real script-grant
+// model. Propose starts a proposal for a mutating action; GetProposal
+// polls its current state. HL-SA-17 deliberately does not invent grant
+// semantics — no mutating tool is registered against this seam yet, only
+// the read-only get_proposal poll (below), which calls GetProposal.
+type ProposalSink interface {
+	Propose(ctx context.Context, text string) (ProposalRef, error)
+	GetProposal(ctx context.Context, id string) (ProposalStatus, error)
+}
+
+// ErrProposalsNotConfigured is what NoopProposalSink returns for every
+// call: the grant model isn't wired in yet, so this reports "not
+// configured" clearly rather than fabricating a pending proposal.
+var ErrProposalsNotConfigured = errors.New("proposal tracking is not configured yet")
+
+// NoopProposalSink is the default ProposalSink until HL-SA-18's grant
+// model is wired into the composition root.
+type NoopProposalSink struct{}
+
+func (NoopProposalSink) Propose(context.Context, string) (ProposalRef, error) {
+	return ProposalRef{}, ErrProposalsNotConfigured
+}
+
+func (NoopProposalSink) GetProposal(context.Context, string) (ProposalStatus, error) {
+	return ProposalStatus{}, ErrProposalsNotConfigured
+}
+
+var _ ProposalSink = NoopProposalSink{}
+
+// registerProposalTools registers get_proposal, the poll side of B3. No
+// mutating tool exists yet — that is out of scope for this ticket.
+func registerProposalTools(s *Server, sink ProposalSink, dashboardBaseURL string) {
+	s.Register(Tool{
+		Name:     "get_proposal",
+		Category: "proposals",
+		Description: "Poll a mutating call's proposal by id: {proposal_id, dashboard_url, state}. " +
+			"No mutating tool is registered in this build, so every call reports not_configured " +
+			"until the grant-model ticket (HL-SA-18) is wired in.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "proposal id returned by a mutating tool call",
+				},
+			},
+			"required":             []string{"id"},
+			"additionalProperties": false,
+		},
+		Required:    []string{"id"},
+		Annotations: Annotations{ReadOnlyHint: true, IdempotentHint: true},
+		Handler: func(ctx context.Context, args map[string]any, _ bool) (ToolResult, error) {
+			p, err := sink.GetProposal(ctx, stringArg(args, "id"))
+			if err != nil {
+				alt := "ask a human to finish wiring the mutating-tool grant model (HL-SA-18)"
+				if dashboardBaseURL != "" {
+					alt = "check " + dashboardBaseURL + " directly; " + alt
+				}
+				return structuredError("not_configured", err.Error(), alt), nil
+			}
+			return renderResult(map[string]any{
+				"proposalId": p.ProposalID,
+				"state":      p.State,
+				"reasons":    p.Reasons,
+				"updatedAt":  p.UpdatedAt,
+			})
+		},
+	})
+}

@@ -1,0 +1,56 @@
+#!/bin/bash
+# Ported verbatim from prototypes/dry-run/bin/docker (FINDINGS.md
+# "deliberate scope decision"). docker gets its own shim because scripts
+# branch on its *stdout*, not just its exit code. It NEVER touches the real
+# docker socket, and — matching the prototype exactly — it never calls
+# check_targets: docker's mutations (restart, rm, exec, ...) are opaque to
+# a path-based violation check by design (issue #51: the docker socket is
+# already root-equivalent and out of this predicate's scope; approving a
+# script that restarts a named container is an intended action, not a
+# sandbox escape).
+CMD="docker"
+FD="${DRYRUN_TRANSCRIPT_FD:-1}"
+
+quote_argv() {
+  local out="" a
+  for a in "$@"; do out+=" $(printf '%q' "$a")"; done
+  echo "$out"
+}
+log_line() {
+  printf '[%s] %s CMD docker%s\n' "$(date '+%Y-%m-%dT%H:%M:%S.%N%z')" "$$" "$(quote_argv "$@")" >&"$FD"
+}
+
+log_line "$@"
+sub="${1:-}"
+
+case "$sub" in
+  ps)
+    # DRYRUN_DOCKER_PS_NAMES: newline-separated container names "running" in this scenario
+    printf '%s\n' "${DRYRUN_DOCKER_PS_NAMES:-}"
+    ;;
+  images)
+    printf '%s\n' "${DRYRUN_DOCKER_IMAGES:-}"
+    ;;
+  inspect)
+    if [[ "$*" == *"State.Status"* ]]; then
+      printf '%s\n' "${DRYRUN_DOCKER_STATE_STATUS:-running}"
+    elif [[ "$*" == *"State.Running"* ]]; then
+      printf '%s\n' "${DRYRUN_DOCKER_STATE_RUNNING:-true}"
+    else
+      echo "{}"
+    fi
+    ;;
+  events)
+    # A real `docker events` blocks until something happens; ours returns
+    # immediately (FINDINGS.md runaway-loop finding).
+    printf '%s\n' "${DRYRUN_DOCKER_EVENTS:-}"
+    ;;
+  exec|run|rm|rmi|pause|unpause|start|stop|restart|kill|create)
+    : # pure mutation, logged above, no stdout contract to honor
+    ;;
+  *)
+    : # unrecognized subcommand — still logged, no canned stdout
+    ;;
+esac
+
+exit "${DRYRUN_EXITCODE_DOCKER:-0}"

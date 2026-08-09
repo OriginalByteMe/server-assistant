@@ -1,0 +1,22 @@
+# Per-workspace dev environments — central scripts in ~/.local/share/orca-vm-recipes/
+# Validate: orca-ide vm recipe doctor dev-auto --repo-path . --json
+environmentRecipes:
+  - id: dev-auto
+    name: Dev VM (Unraid, Modal fallback)
+    description: Probes rijkaardserver's Docker over Tailscale; falls back to a Modal sandbox when away from the tailnet. Repo seeded from local checkout.
+    create: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py auto
+    suspend: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py auto
+    resume: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py auto
+    destroy: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py auto
+  - id: unraid-docker
+    name: Unraid container (rijkaardserver)
+    description: Throwaway Docker container on rijkaardserver. Free, fast (~6s), real suspend/resume via docker stop/start.
+    create: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py unraid
+    suspend: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py unraid
+    resume: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py unraid
+    destroy: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py unraid
+  - id: modal-ssh
+    name: Modal sandbox
+    description: Cloud sandbox on Modal (24h max, billed while running). No suspend; use when the tailnet is unreachable.
+    create: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py modal
+    destroy: /home/noahr/.local/share/orca-vm-recipes/orca_vm.py modal

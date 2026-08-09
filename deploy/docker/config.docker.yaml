@@ -1,0 +1,52 @@
+# Server Assistant — Docker-on-Unraid-host config (docs/DEPLOY-UNRAID.md).
+# Mounted read-only into the container at /etc/server-assistant/config.yaml
+# by docker-compose.yml. Every key below is verified against
+# internal/config/config.go's (and internal/config/unraid.go's) yaml tags —
+# do not add a key that isn't tagged in one of those files.
+
+schema_version: 1
+
+# The container's own listener stays on its untouched default (:8080) — see
+# the Dockerfile comment. docker-compose.yml remaps only the host-facing
+# publish to 8099, so no http_addr override is needed here.
+
+database:
+  # server-assistant-data is the named volume in docker-compose.yml — state
+  # and the harness audit trail survive container restarts/recreates.
+  path: /var/lib/server-assistant/state.db
+
+# The Unraid state source (GitHub #53/#57, core.UnraidSource). Fields per
+# UnraidCollectors' internal/config/unraid.go.
+unraid:
+  # unraid-api's GraphQL is reachable over the LAN and the tailnet, not just
+  # loopback (docs/research/unraid-state-sources.md §"GraphQL reachability").
+  # This container runs in bridge network mode (deliberately, so the 8099
+  # host remap works — see docker-compose.yml) rather than host networking,
+  # so 127.0.0.1 inside the container is the CONTAINER's loopback, not the
+  # Unraid host's. Point at the host's real LAN IP instead.
+  graphql_url: "http://192.168.68.57/graphql"
+  # Never a literal key — resolved from the environment at load time
+  # (CONVENTIONS rule 7). Supplied via docker-compose.yml's `environment:`,
+  # itself sourced from an untracked deploy/docker/.env (see
+  # docs/DEPLOY-UNRAID.md for how a human provisions this key).
+  api_key: "${UNRAID_API_KEY}"
+  docker_socket: /var/run/docker.sock
+  # smartctl_path/*_timeout knobs are left at internal/config/unraid.go's
+  # defaults. NOTE: this container mounts only /var/local/emhttp and the
+  # Docker socket (docker-compose.yml) — no raw block devices are passed
+  # through, so smartctl reads issued from inside this container cannot see
+  # /dev/sdX and will fail closed (ADR "the observer never lies": a real
+  # error surfaces, never a fabricated zero). Raw SMART attribute collection
+  # from this deployment shape is an open item for #52's later actuation
+  # work, not something this packaging ticket adds device passthrough or
+  # --privileged for.
+
+# The MCP endpoint stitches this into the initialize handshake and into the
+# dashboard_url a mutating tool fast-returns (GitHub #57 decision B3), so the
+# LLM can tell the human exactly where to go and approve. Left empty, every
+# proposal comes back with an empty dashboard_url and the human is told to
+# approve "somewhere". Tailnet address, not the LAN one — that is how this
+# endpoint is actually reached today (state "tailnet"; Funnel is a separate,
+# human-approved step, docs/DEPLOY-UNRAID.md).
+mcp:
+  dashboard_base_url: "http://100.90.134.29:8099"

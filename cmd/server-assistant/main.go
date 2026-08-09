@@ -20,12 +20,16 @@ import (
 	"server-assistant/internal/config"
 	"server-assistant/internal/core"
 	"server-assistant/internal/harness"
+	"server-assistant/internal/mcp"
 	"server-assistant/internal/monitor"
 	"server-assistant/internal/notifier"
 	"server-assistant/internal/prober"
 	"server-assistant/internal/reasoner"
+	"server-assistant/internal/sampler"
+	"server-assistant/internal/scripts"
 	"server-assistant/internal/store"
 	"server-assistant/internal/tools"
+	"server-assistant/internal/unraid"
 	"server-assistant/internal/web"
 )
 
@@ -97,11 +101,24 @@ func harnessSecrets(cfg *config.Config) []string {
 // dashboard wires the HTTP surface. With no Harness the v1 dashboard is served
 // unchanged; with one, the incident/Approval routes attach behind the same
 // handler (ADR 0023 — the dashboard is this milestone's Approval surface).
-func dashboard(mon *monitor.Monitor, hs *harness.Harness) http.Handler {
-	if hs == nil {
+// us and ps are the Unraid-resident additions: live Host state and the
+// script-proposal Approval surface. Any of the three may be nil, and each
+// simply omits its own routes.
+//
+// hs is converted to its interface explicitly rather than passed straight
+// through: a nil *harness.Harness assigned into a web.HarnessSource yields a
+// NON-nil interface holding a nil pointer, so web's `hs != nil` guards all
+// pass and /api/health panics on the first request. Found by deploying —
+// every unit test wired a real fake, so none of them could see it.
+func dashboard(mon *monitor.Monitor, hs *harness.Harness, us core.UnraidSource, ps web.ProposalSource) http.Handler {
+	var hsrc web.HarnessSource
+	if hs != nil {
+		hsrc = hs
+	}
+	if hsrc == nil && us == nil && ps == nil {
 		return web.Handler(mon)
 	}
-	return web.HandlerWithHarness(mon, hs)
+	return web.HandlerFull(mon, hsrc, us, ps)
 }
 
 func reloadKnobs(src config.Source, ctx context.Context) ([]monitor.Service, error) {
@@ -313,9 +330,49 @@ func run() error {
 		return err
 	}
 
+	// The Unraid-resident surface (GitHub #51): live Host state for the
+	// dashboard, the same state for the user's own LLM over MCP, and the
+	// script registry whose proposals both share. Absent config leaves every
+	// one of them nil and the v1 dashboard behaves exactly as before.
+	var (
+		unraidSrc  core.UnraidSource
+		bridge     *proposalBridge
+		smp        *sampler.Sampler
+		mcpHandler http.Handler
+	)
+	if cfg.Unraid != nil {
+		unraidSrc = unraid.NewSource(*cfg.Unraid, cfg.HTTPAddr, slog.Default())
+		slog.Info("unraid source enabled", "graphql", cfg.Unraid.GraphQLURL)
+
+		smp = sampler.New(unraidSrc, st, cfg.Sampler.Interval(), cfg.Sampler.Retention(), slog.Default())
+
+		scriptStore, serr := scripts.NewStore(ctx, cfg.Database.Path)
+		if serr != nil {
+			return serr
+		}
+		exec := &scripts.Executor{
+			DryRunTimeout: cfg.Scripts.DryRunTimeout(),
+			RunTimeout:    cfg.Scripts.RunTimeout(),
+		}
+		reg := scripts.NewRegistry(scriptStore, exec,
+			unraidPrecondition{src: unraidSrc, timeout: cfg.Unraid.DockerTimeout()})
+		bridge = &proposalBridge{reg: reg, store: scriptStore, dashboardURL: cfg.MCP.DashboardBaseURL}
+
+		mcpSrv := mcp.NewServer(unraidSrc, bridge, cfg.MCP.DashboardBaseURL)
+		registerScriptTools(mcpSrv, bridge, exec)
+		mcpHandler = mcpSrv.Handler()
+		slog.Info("mcp endpoint enabled", "path", "/mcp")
+	}
+
+	root := http.NewServeMux()
+	root.Handle("/", dashboard(mon, hs, unraidSrc, webProposals(bridge)))
+	if mcpHandler != nil {
+		root.Handle("/mcp", mcpHandler)
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           dashboard(mon, hs),
+		Handler:           root,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -332,6 +389,13 @@ func run() error {
 		defer wg.Done()
 		mon.Run(ctx)
 	}()
+	if smp != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			smp.Run(ctx)
+		}()
+	}
 	go func() {
 		defer wg.Done()
 		if serr := srv.ListenAndServe(); serr != nil && !errors.Is(serr, http.ErrServerClosed) {

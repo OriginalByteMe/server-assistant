@@ -115,3 +115,33 @@ pre.tool-output {
   font-size: .8em;
 }
 .spark-none { color: var(--muted); }
+
+/* Unauthenticated-dashboard notice (HL-SA-10 on hold): the Approval surface
+   has no login, so this must be impossible to miss on every page that
+   carries it. */
+.alert-unauth {
+  background: #fcefdc;
+  border: 1px solid #e8c48a;
+  border-left: 5px solid var(--down);
+  border-radius: .3rem;
+  padding: .75rem 1rem;
+  margin: 0 0 1rem;
+}
+
+/* Reachability self-check (GitHub #51/#56) — four distinct states, never
+   collapsed into one ok/broken signal. */
+.reach-banner {
+  border: 1px solid var(--line);
+  border-left-width: 5px;
+  border-radius: .3rem;
+  padding: .75rem 1rem;
+  margin: 0 0 1rem;
+}
+.reach-absent  { border-left-color: var(--muted); }
+.reach-tailnet { border-left-color: var(--warn); }
+.reach-funnel  { border-left-color: var(--up); }
+.reach-failing { border-left-color: var(--down); }
+.reach-error   { border-left-color: var(--down); }
+
+/* A spun-down disk's temperature is deliberately unread, not zero. */
+.disk-standby { color: var(--muted); font-style: italic; }

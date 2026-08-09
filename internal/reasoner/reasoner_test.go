@@ -229,7 +229,6 @@ func TestDiagnoseRationaleTruncation(t *testing.T) {
 		APIKey:  "",
 		Secrets: []string{},
 	}
-	c := New(cfg)
 
 	// Manually encode the JSON to match what the server would send
 	server.Client().CloseIdleConnections()
@@ -248,7 +247,7 @@ func TestDiagnoseRationaleTruncation(t *testing.T) {
 		})
 	}))
 	cfg.BaseURL = server.URL
-	c = New(cfg)
+	c := New(cfg)
 	reply, err := c.Diagnose(context.Background(), "test prompt")
 	require.NoError(t, err)
 	require.LessOrEqual(t, len([]rune(reply.Rationale)), maxRationaleRunes)

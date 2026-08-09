@@ -8,7 +8,7 @@ box. See `CONTEXT.md` (glossary), `docs/adr/` (decisions), `docs/CONVENTIONS.md`
 
 ### Issue tracker
 
-Issues live in Linear — team "Ark Personal projects", project "Smart Server assistant", via the Linear MCP. See `docs/agents/issue-tracker.md`.
+Implementation issues live in Linear — team "Ark Personal projects", project "Smart Server assistant", via the Linear MCP. Wayfinder maps and decision tickets use this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

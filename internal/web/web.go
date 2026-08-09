@@ -32,15 +32,16 @@ type ViewSource interface {
 // Handler returns the dashboard mux: the page at /, vendored assets under
 // /static/, and the SSE stream at /events.
 func Handler(vs ViewSource) http.Handler {
-	return buildMux(vs, nil)
+	return buildMux(vs, nil, nil, nil)
 }
 
-// buildMux assembles the dashboard mux for both the harness-blind
-// constructor (Handler) and the harness-aware one (HandlerWithHarness,
-// incidents.go). Routing lives in exactly one place; a nil hs simply means
-// the harness-specific patterns are never registered, so ServeMux 404s them
-// naturally and the dashboard renders no Harness panel.
-func buildMux(vs ViewSource, hs HarnessSource) *http.ServeMux {
+// buildMux assembles the dashboard mux for the harness-blind constructor
+// (Handler), the harness-aware one (HandlerWithHarness, incidents.go), and
+// the fully-wired one (HandlerFull, unraid.go). Routing lives in exactly
+// one place; a nil hs/us/ps simply means those routes are never
+// registered, so ServeMux 404s them naturally and the dashboard renders no
+// Harness panel / no Unraid page / no proposal decision routes.
+func buildMux(vs ViewSource, hs HarnessSource, us core.UnraidSource, ps ProposalSource) *http.ServeMux {
 	assets, _ := fs.Sub(staticFS, "static")
 
 	mux := http.NewServeMux()
@@ -50,9 +51,10 @@ func buildMux(vs ViewSource, hs HarnessSource) *http.ServeMux {
 		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 		defer cancel()
 		data := pageData{
-			Rows:    rowsWithHistory(vs),
-			Harness: harnessPanelFor(hs),
-			Pending: pendingIncidentsFor(ctx, hs),
+			Rows:       rowsWithHistory(vs),
+			Harness:    harnessPanelFor(hs),
+			Pending:    pendingIncidentsFor(ctx, hs),
+			UnraidLink: us != nil,
 		}
 		if err := pageTmpl.Execute(w, data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -67,6 +69,9 @@ func buildMux(vs ViewSource, hs HarnessSource) *http.ServeMux {
 	if hs != nil {
 		registerIncidentRoutes(mux, hs)
 		registerAPIRoutes(mux, hs)
+	}
+	if us != nil {
+		registerUnraidRoutes(mux, us, ps)
 	}
 	return mux
 }
@@ -159,6 +164,10 @@ type pageData struct {
 	// Pending drives the top-of-page alert banner (ADR 0023): every cycle
 	// still awaiting an Operator decision, newest first.
 	Pending []pendingIncident
+	// UnraidLink shows the nav link to /unraid — true whenever a
+	// core.UnraidSource was wired in (HandlerFull), same nil-means-absent
+	// convention as Harness.
+	UnraidLink bool
 }
 
 type harnessPanel struct {
@@ -238,6 +247,9 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
 <div class="alert-pending" role="alert"><strong>Incident awaiting your decision:</strong> {{ .Subject }} is <span class="s-{{ .TriggerStatus }}">{{ .TriggerStatus }}</span> — proposed action <strong>{{ .ProposedAction }}</strong>.<a class="btn btn-primary" href="/incidents/{{ .ID }}">Review &amp; decide</a></div>
 {{- end }}
 <h1>Server Assistant</h1>
+{{- if .UnraidLink }}
+<p><a href="/unraid">Unraid</a></p>
+{{- end }}
 <table>
 <thead><tr><th>Service</th><th>Status</th><th>Latency</th><th>Last checked</th><th>Trend</th></tr></thead>
 <tbody>

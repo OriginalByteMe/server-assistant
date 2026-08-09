@@ -1,0 +1,104 @@
+# Server Assistant — Unraid-host Docker stack (issue #52 packaging decision:
+# Docker container via Community Applications is the primary vehicle).
+#
+# Bind 8099 on the HOST, not 8080 — 8080 on rijkaardserver is already held
+# by the unrelated binhex-qbittorrentvpn container
+# (docs/research/mcp-reachability.md §2, `ss -ltnp` evidence). The app's own
+# in-container listener stays at its untouched default (:8080); only the
+# host-facing publish moves, which is why this stack uses bridge networking
+# rather than host networking (host mode would re-collide on 8080).
+#
+# ---------------------------------------------------------------------------
+# ON THE DOCKER SOCKET MOUNT BELOW — READ THIS BEFORE CHANGING IT
+#
+# /var/run/docker.sock is root-equivalent: any process that can reach it can
+# `docker run --privileged -v /:/host` and own the Unraid host outright.
+# Mounting it here does NOT make this container "isolated but capable" —
+# "socket but not privileged" is a distinction without a difference (issue
+# #52's explicit correction). The container boundary is a distribution
+# convenience, not a security boundary. What actually holds:
+#   1. the two-phase human Approval gate — nothing actuates unmoderated;
+#   2. hash-bound, argument-free scripts — an approved script can't be
+#      re-parameterised by whoever reached the MCP endpoint;
+#   3. the mandatory dry run before any real actuation.
+# The intended mitigation for the socket itself is a route-allowlisting
+# proxy in front of it (permit container restart/stop/start + reads, deny
+# create/exec/images/*, volume binds) — tracked in #52, not yet built. Do
+# not add language anywhere in this stack implying the socket mount is
+# "safe" because the container "isn't privileged"; it is not, and that
+# alone buys nothing.
+# ---------------------------------------------------------------------------
+
+services:
+  server-assistant:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: server-assistant:local
+    container_name: server-assistant
+    restart: unless-stopped
+    ports:
+      - "8099:8080"
+    # The container runs as a non-root user (see Dockerfile). /var/run/docker.sock
+    # on this host is root:docker 0660 gid=281, so the runtime user must be in
+    # that group to read it at all. group_add is the minimal grant — it does NOT
+    # make the container safe (the socket is root-equivalent either way; read the
+    # block above), it just avoids running the process as root for no benefit.
+    group_add:
+      - "281"
+    # The dry-run executor builds its sandbox with `unshare --user --mount
+    # --net`. Docker's DEFAULT seccomp profile blocks that syscall, so without
+    # this every dry run fails, and because "a script with no working dry run
+    # cannot be approved" is enforced in the state machine, NO script could
+    # ever be approved — the feature is dead, silently, in a way that looks
+    # like a script problem rather than a packaging one.
+    #
+    # Verified on this host: `docker run --security-opt seccomp=unconfined`
+    # succeeds at the same unshare that fails under the default profile;
+    # user.max_user_namespaces is 127736, so the kernel permits it.
+    #
+    # This does NOT widen the boundary in any way that matters here: the
+    # docker.sock mount above is already root-equivalent, so the container was
+    # never a security boundary (issue #52's correction). Loosening seccomp on
+    # top of a root-equivalent socket changes nothing about what an attacker
+    # who reached this process could already do. What holds is unchanged: the
+    # human Approval gate, hash-bound argument-free scripts, the mandatory dry
+    # run.
+    security_opt:
+      - seccomp:unconfined
+    volumes:
+      # INI state fallback source (docs/research/unraid-state-sources.md
+      # §"Gaps and their direct sources") — read-only, never written.
+      - /var/local/emhttp:/var/local/emhttp:ro
+      # Root-equivalent — read the comment block above before touching this.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The reachability self-check shells out to the tailscale CLI. Without
+      # the binary AND its daemon socket the check reports "absent", which is
+      # honest but wrong on a host that is very much on the tailnet — the
+      # single most misleading answer this product can give (GitHub #51, #56).
+      # The plugin's real binary, not the /usr/local/sbin symlink to it.
+      - /usr/local/emhttp/plugins/tailscale/bin/tailscale:/usr/local/bin/tailscale:ro
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+      - ./config.docker.yaml:/etc/server-assistant/config.yaml:ro
+      - server-assistant-data:/var/lib/server-assistant
+    environment:
+      # Never bake a real key into the image or commit it in this file
+      # (CONVENTIONS rule 7). Provide it in a sibling `.env`
+      # (deploy/docker/.env, gitignored) next to this compose file:
+      #   UNRAID_API_KEY=<key created per docs/DEPLOY-UNRAID.md>
+      # config.docker.yaml references it as ${UNRAID_API_KEY}. The `:?`
+      # form fails the whole `up` fast with a clear message if it's unset,
+      # rather than starting a container that can never authenticate.
+      UNRAID_API_KEY: "${UNRAID_API_KEY:?set UNRAID_API_KEY in deploy/docker/.env — see docs/DEPLOY-UNRAID.md}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  # Named volume, not a bind mount: `docker compose down && up` (a plain
+  # recreate, not `down -v`) keeps SQLite state and the harness audit trail
+  # across restarts.
+  server-assistant-data:

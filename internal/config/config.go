@@ -46,6 +46,21 @@ type Config struct {
 	// It ships default-off (ADR 0014): after Load the pointer is always
 	// non-nil, and an absent section resolves to Mode off.
 	Harness *Harness `yaml:"harness"`
+	// Sampler bounds the SMART/capacity/array-state history sampler's
+	// interval and retention (GitHub #61). Not a pointer, same as History:
+	// always present with a default.
+	Sampler SamplerConfig `yaml:"sampler"`
+	// Unraid configures the direct on-host Unraid state source (HL-SA-22,
+	// internal/unraid). A nil pointer means no Unraid source is wired.
+	Unraid *UnraidConfig `yaml:"unraid"`
+	// MCP configures the stateless MCP surface (HL-SA-17, internal/mcp).
+	// Always present with a default, same as History/Sampler: an empty
+	// DashboardBaseURL is valid and simply omits it from tool output.
+	MCP MCPConfig `yaml:"mcp"`
+	// Scripts bounds the HL-SA-18 script proposal/dry-run/grant subsystem
+	// (issue #51/#55). Not a pointer, same as History/Sampler: always
+	// present with defaults so grant TTLs are never silently unset.
+	Scripts ScriptsConfig `yaml:"scripts"`
 }
 
 // HistoryConfig bounds Probe-sample retention. Samples older than Window are
@@ -260,6 +275,13 @@ func (c *Config) resolveSecrets() error {
 	}
 	c.Telegram.BotToken = r.expand(c.Telegram.BotToken)
 	c.Telegram.ChatID = r.expand(c.Telegram.ChatID)
+	if c.Unraid != nil {
+		c.Unraid.GraphQLURL = r.expand(c.Unraid.GraphQLURL)
+		c.Unraid.APIKey = r.expand(c.Unraid.APIKey)
+		c.Unraid.SmartctlPath = r.expand(c.Unraid.SmartctlPath)
+		c.Unraid.DockerSocket = r.expand(c.Unraid.DockerSocket)
+		c.Unraid.TailscalePath = r.expand(c.Unraid.TailscalePath)
+	}
 	if c.Host != nil {
 		// The reachability target may embed a secret host via ${VAR}.
 		c.Host.Address = r.expand(c.Host.Address)
@@ -377,17 +399,28 @@ func (c *Config) validate() error {
 	}
 	if c.History.WindowStr == "" {
 		c.History.window = 24 * time.Hour
-		return nil
+	} else {
+		d, err := time.ParseDuration(c.History.WindowStr)
+		if err != nil {
+			return fmt.Errorf("history window: %w", err)
+		}
+		if d < 0 {
+			return fmt.Errorf("history window: must not be negative, got %s", c.History.WindowStr)
+		}
+		// retain <= 0 is the monitor's documented no-prune mode.
+		c.History.window = d
 	}
-	d, err := time.ParseDuration(c.History.WindowStr)
-	if err != nil {
-		return fmt.Errorf("history window: %w", err)
+	if err := c.Sampler.resolve(); err != nil {
+		return err
 	}
-	if d < 0 {
-		return fmt.Errorf("history window: must not be negative, got %s", c.History.WindowStr)
+	if c.Unraid != nil {
+		if err := c.Unraid.resolve(); err != nil {
+			return err
+		}
 	}
-	// retain <= 0 is the monitor's documented no-prune mode.
-	c.History.window = d
+	if err := c.Scripts.resolve(); err != nil {
+		return err
+	}
 	return nil
 }
 
